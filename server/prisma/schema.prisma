@@ -1,0 +1,316 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  username      String    @unique
+  password      String
+  name          String
+  role          UserRole  @default(TELLER)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastLoginAt   DateTime?
+  isActive      Boolean   @default(true)
+  createdCustomers    Customer[]  @relation("CreatedBy")
+  approvedAccounts   Account[]   @relation("ApprovedBy")
+  requestedWithdrawals WithdrawalAuthorization[] @relation("RequestedBy")
+  approvedWithdrawals WithdrawalAuthorization[] @relation("ApprovedWithdrawal")
+  reversedWithdrawals WithdrawalAuthorization[] @relation("ReversedWithdrawal")
+  approvedLoans      Loan[]      @relation("ApprovedLoan")
+  createdExpenses    Expense[]   @relation("CreatedExpense")
+  approvedExpenses   Expense[]   @relation("ApprovedExpense")
+}
+
+model Customer {
+  id                String    @id @default(uuid())
+  customerNumber    String    @unique  // Human-readable customer ID like CUST000000001
+  name              String
+  email             String?   @unique
+  phone             String?
+  address           String?
+  kycStatus         KYCStatus @default(PENDING)
+  dateJoined        DateTime  @default(now())
+  firstName         String?
+  surname           String?
+  gender           String?
+  dateOfBirth      DateTime?
+  occupation       String?
+  workplace        String?
+  maritalStatus    String?
+  residentialAddress String?
+  postalAddress    String?
+  contactNumber    String?
+  city             String?
+  photo            String?
+  signature        String?
+  identificationType String?
+  identificationNumber String?
+  beneficiaryName    String?
+  beneficiaryContact String?
+  beneficiaryPercentage Int?
+  beneficiary2Name    String?
+  beneficiary2Contact String?
+  beneficiary2Percentage Int?
+  beneficiary3Name    String?
+  beneficiary3Contact String?
+  beneficiary3Percentage Int?
+  createdBy       User      @relation("CreatedBy", fields: [createdById], references: [id])
+  createdById     String
+  accounts        Account[]
+  loans           Loan[]
+  guarantor1Loans Loan[]    @relation("Guarantor1")
+  guarantor2Loans Loan[]    @relation("Guarantor2")
+  guarantor3Loans Loan[]    @relation("Guarantor3")
+  incomeRecords   BankIncome[] @relation("IncomeCustomer")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Account {
+  id              String    @id @default(uuid())
+  accountNumber   String    @unique
+  type            AccountType
+  status          AccountStatus @default(ACTIVE)
+  authorizationStatus AccountAuthorizationStatus @default(PENDING)
+  balance         Decimal   @default(0)
+  currency        String    @default("USD")
+  customerId      String
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  dateOpened      DateTime  @default(now())
+  lastTransactionDate DateTime?
+  minimumBalance  Decimal?
+  overdraftLimit  Decimal?
+  shareBalance    Decimal?  @default(0)
+  sharesAvailableBalance Decimal? @default(0)
+  approvedBy      User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
+  approvedById    String?
+  transactions    Transaction[]
+  withdrawalAuthorizations WithdrawalAuthorization[] @relation("WithdrawalAccount")
+  loan            Loan?
+  guarantor1Loans Loan[] @relation("Guarantor1Account")
+  guarantor2Loans Loan[] @relation("Guarantor2Account")
+  guarantor3Loans Loan[] @relation("Guarantor3Account")
+  incomeRecords   BankIncome[] @relation("IncomeAccount")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  createdBy       String?    // ID of user who created the account
+}
+
+model Transaction {
+  id              String    @id @default(uuid())
+  type            TransactionType
+  amount          Decimal
+  status          TransactionStatus @default(COMPLETED)
+  description     String?
+  accountId       String
+  account         Account   @relation(fields: [accountId], references: [id])
+  reference       String?   @unique
+  date           DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model WithdrawalAuthorization {
+  id              String    @id @default(uuid())
+  accountId       String
+  account         Account   @relation("WithdrawalAccount", fields: [accountId], references: [id])
+  amount          Decimal
+  type            WithdrawalType
+  description     String?
+  reference       String?
+  toAccountNumber String?   // For transfers
+  toCustomerName  String?   // For transfers
+  status          WithdrawalAuthorizationStatus @default(PENDING)
+  requestedAt     DateTime  @default(now())
+  requestedBy     User      @relation("RequestedBy", fields: [requestedById], references: [id])
+  requestedById   String
+  approvedBy      User?     @relation("ApprovedWithdrawal", fields: [approvedById], references: [id])
+  approvedById    String?
+  approvedAt      DateTime?
+  rejectedReason  String?
+  isReversed      Boolean   @default(false)
+  reversedBy      User?     @relation("ReversedWithdrawal", fields: [reversedById], references: [id])
+  reversedById    String?
+  reversedAt      DateTime?
+  reversalReason  String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Loan {
+  id                String    @id @default(uuid())
+  customerId        String
+  customer          Customer  @relation(fields: [customerId], references: [id])
+  accountId         String    @unique
+  account           Account   @relation(fields: [accountId], references: [id])
+  amount            Decimal
+  interestRate      Decimal
+  term              Int       // in months
+  status            LoanStatus @default(ACTIVE)
+  repaymentFrequency RepaymentFrequency @default(MONTHLY)
+  startDate         DateTime  @default(now())
+  endDate           DateTime
+  totalPayable      Decimal
+  amountPaid        Decimal   @default(0)
+  outstandingBalance Decimal
+  nextPaymentDate   DateTime?
+  monthlyPayment    Decimal
+  
+  // New loan repayment tracking fields
+  totalPaid         Decimal   @default(0)
+  totalInterestPaid Decimal   @default(0)
+  guarantorReimbursed Decimal @default(0)
+  principalRemaining Decimal  @default(1000)
+  isCompleted       Boolean   @default(false)
+  lastPaymentDate   DateTime?
+  lastPaymentAmount Decimal   @default(0)
+  
+  guarantor1Id      String?
+  guarantor1        Customer? @relation("Guarantor1", fields: [guarantor1Id], references: [id])
+  guarantor1AccountId String?
+  guarantor1Account Account? @relation("Guarantor1Account", fields: [guarantor1AccountId], references: [id])
+  guarantor1Percentage Int?
+  guarantor2Id      String?
+  guarantor2        Customer? @relation("Guarantor2", fields: [guarantor2Id], references: [id])
+  guarantor2AccountId String?
+  guarantor2Account Account? @relation("Guarantor2Account", fields: [guarantor2AccountId], references: [id])
+  guarantor2Percentage Int?
+  guarantor3Id      String?
+  guarantor3        Customer? @relation("Guarantor3", fields: [guarantor3Id], references: [id])
+  guarantor3AccountId String?
+  guarantor3Account Account? @relation("Guarantor3Account", fields: [guarantor3AccountId], references: [id])
+  guarantor3Percentage Int?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  createdBy         String?   // ID of user who created the loan
+  approvedBy        User?     @relation("ApprovedLoan", fields: [approvedById], references: [id])
+  approvedById      String?
+  approvedAt        DateTime?
+}
+
+model BankIncome {
+  id              String    @id @default(uuid())
+  type            IncomeType
+  amount          Decimal
+  description     String?
+  sourceId        String?   // Could be transaction ID or loan ID
+  sourceType      String?   // "transaction" or "loan"
+  accountId       String?   // Account involved in generating income
+  account         Account?  @relation("IncomeAccount", fields: [accountId], references: [id])
+  customerId      String?   // Customer involved in generating income
+  customer        Customer? @relation("IncomeCustomer", fields: [customerId], references: [id])
+  date            DateTime  @default(now())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model Expense {
+  id                String        @id @default(uuid())
+  date              DateTime
+  category          String
+  description       String
+  amount            Decimal
+  vendor            String
+  department        String
+  status            ExpenseStatus @default(PENDING)
+  paymentMethod     String?
+  referenceNumber   String?
+  notes             String?
+  approvedById      String?
+  approvedByUser    User?         @relation("ApprovedExpense", fields: [approvedById], references: [id])
+  approvedDate      DateTime?
+  paidDate          DateTime?
+  createdById       String
+  createdByUser     User          @relation("CreatedExpense", fields: [createdById], references: [id])
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+}
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  TELLER
+}
+
+enum KYCStatus {
+  VERIFIED
+  PENDING
+  REJECTED
+}
+
+enum AccountType {
+  SAVINGS
+  CURRENT
+  FIXED
+  LOAN
+}
+
+enum AccountStatus {
+  ACTIVE
+  DORMANT
+  CLOSED
+  FROZEN
+}
+
+enum AccountAuthorizationStatus {
+  APPROVED
+  PENDING
+  REJECTED
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+  LOAN_REPAYMENT
+}
+
+enum TransactionStatus {
+  COMPLETED
+  PENDING
+  FAILED
+}
+
+enum WithdrawalType {
+  WITHDRAWAL
+  TRANSFER
+}
+
+enum WithdrawalAuthorizationStatus {
+  APPROVED
+  PENDING
+  REJECTED
+}
+
+enum LoanStatus {
+  ACTIVE
+  PAID
+  DEFAULTED
+  CLOSED
+}
+
+enum RepaymentFrequency {
+  MONTHLY
+  QUARTERLY
+  ANNUALLY
+}
+
+enum IncomeType {
+  WITHDRAWAL_CHARGE
+  LOAN_INTEREST
+  TRANSFER_FEE
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  PAID
+  REJECTED
+}

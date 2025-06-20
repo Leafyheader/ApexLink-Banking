@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+    --bg-color: 255 255 255;
+    --surface-color: 243 244 246;
+    --border-color: 229 231 235;
+    --text-color: 17 24 39;
+  }
+
+  .dark {
+    color-scheme: dark;
+    --bg-color: 17 24 39;
+    --surface-color: 31 41 55;
+    --border-color: 55 65 81;
+    --text-color: 249 250 251;
+  }
+}
