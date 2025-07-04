@@ -20,6 +20,8 @@ import BankIncome from './pages/BankIncome';
 import Reports from './pages/Reports';
 import Expenses from './pages/Expenses';
 import ExpenseApproval from './pages/ExpenseApproval';
+import Users from './pages/Users';
+import CreateUser from './pages/CreateUser';
 import { ToastProvider } from './components/ui/Toast';
 import { AuthProvider } from './contexts/AuthContext';
 import PrivateRoute from './components/auth/PrivateRoute';
@@ -58,6 +60,8 @@ const App: React.FC = () => {
               <Route path="bank-income" element={<BankIncome />} />
               <Route path="expenses" element={<Expenses />} />
               <Route path="expense-approval" element={<ExpenseApproval />} />
+              <Route path="users" element={<Users />} />
+              <Route path="users/new" element={<CreateUser />} />
               <Route path="reports" element={<Reports />} />
               {/* Add routes for other pages as they are created */}
             </Route>

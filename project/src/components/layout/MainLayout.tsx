@@ -16,6 +16,7 @@ import {
   Moon,
   PiggyBank,
   Receipt,
+  UserCheck,
 } from 'lucide-react';
 import Button from '../ui/Button';
 import ApexLinkLogo from '../icons/BankingIcon';
@@ -64,6 +65,7 @@ const MainLayout: React.FC = () => {
     { name: 'Bank Income', path: '/bank-income', icon: <PiggyBank size={20} /> },
     { name: 'Expenses', path: '/expenses', icon: <Receipt size={20} /> },
     { name: 'Expense Approval', path: '/expense-approval', icon: <Receipt size={20} /> },
+    { name: 'User Management', path: '/users', icon: <UserCheck size={20} /> },
     { name: 'Reports', path: '/reports', icon: <FileText size={20} /> },
     { name: 'Settings', path: '/settings', icon: <Settings size={20} /> },
   ];

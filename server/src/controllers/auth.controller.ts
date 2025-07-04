@@ -49,6 +49,45 @@ export const login = async (req: Request, res: Response) => {
   }
 };
 
+export const register = async (req: Request, res: Response) => {
+  try {
+    const { name, username, password, role } = req.body;
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { username }
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ message: 'Username already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
+    // Create user
+    const user = await prisma.user.create({
+      data: {
+        name,
+        username,
+        password: hashedPassword,
+        role: role || 'TELLER'
+      }
+    });
+
+    // Remove password from response
+    const { password: _, ...userWithoutPassword } = user;
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: userWithoutPassword
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 export const validateToken = async (req: AuthRequest, res: Response) => {
   try {
     // User is already authenticated through middleware

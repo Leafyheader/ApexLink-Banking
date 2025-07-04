@@ -14,7 +14,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateToken = exports.login = void 0;
+exports.validateToken = exports.register = exports.login = void 0;
 const client_1 = require("@prisma/client");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
@@ -53,6 +53,40 @@ const login = async (req, res) => {
     }
 };
 exports.login = login;
+const register = async (req, res) => {
+    try {
+        const { name, username, password, role } = req.body;
+        // Check if user already exists
+        const existingUser = await prisma.user.findUnique({
+            where: { username }
+        });
+        if (existingUser) {
+            return res.status(400).json({ message: 'Username already exists' });
+        }
+        // Hash password
+        const hashedPassword = await bcryptjs_1.default.hash(password, 12);
+        // Create user
+        const user = await prisma.user.create({
+            data: {
+                name,
+                username,
+                password: hashedPassword,
+                role: role || 'TELLER'
+            }
+        });
+        // Remove password from response
+        const { password: _ } = user, userWithoutPassword = __rest(user, ["password"]);
+        res.status(201).json({
+            message: 'User created successfully',
+            user: userWithoutPassword
+        });
+    }
+    catch (error) {
+        console.error('Registration error:', error);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+};
+exports.register = register;
 const validateToken = async (req, res) => {
     try {
         // User is already authenticated through middleware

@@ -1,6 +1,30 @@
 import { Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 
+export const validateUserRegistration = [
+  body('name')
+    .notEmpty().withMessage('Name is required')
+    .isLength({ min: 2 }).withMessage('Name must be at least 2 characters long'),
+  body('username')
+    .notEmpty().withMessage('Username is required')
+    .isLength({ min: 3 }).withMessage('Username must be at least 3 characters long')
+    .matches(/^[a-zA-Z0-9_]+$/).withMessage('Username can only contain letters, numbers, and underscores'),
+  body('password')
+    .notEmpty().withMessage('Password is required')
+    .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  body('role')
+    .notEmpty().withMessage('Role is required')
+    .isIn(['ADMIN', 'MANAGER', 'TELLER']).withMessage('Role must be ADMIN, MANAGER, or TELLER'),
+  (req: Request, res: Response, next: NextFunction): void => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      res.status(400).json({ errors: errors.array() });
+      return;
+    }
+    next();
+  }
+];
+
 export const validateLogin = [
   body('username')
     .notEmpty().withMessage('Username is required')

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Search, 
@@ -7,7 +7,10 @@ import {
   Trash2,
   Eye,
   X,
-  CreditCard
+  CreditCard,
+  Download,
+  Upload,
+  FileText
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -38,7 +41,19 @@ const Customers: React.FC = () => {
   
   // Modal states
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [currentCustomer, setCurrentCustomer] = useState<Customer | null>(null);
+  
+  // CSV Import states
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importResults, setImportResults] = useState<{
+    success: number;
+    errors: string[];
+  } | null>(null);
+  
+  // File input ref
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Loading and error states
   const [isLoading, setIsLoading] = useState(true);
@@ -137,6 +152,214 @@ const Customers: React.FC = () => {
     }
   };
 
+  // CSV Template download
+  const downloadTemplate = () => {
+    const template = [
+      'name,email,phone,address,dateOfBirth,occupation,firstName,surname,gender,maritalStatus,workplace,residentialAddress,postalAddress,contactNumber,city,identificationType,identificationNumber,beneficiaryName,beneficiaryContact,beneficiaryPercentage,beneficiary2Name,beneficiary2Contact,beneficiary2Percentage',
+      'John Doe,john.doe@example.com,+1234567890,"123 Main St, City, State",1990-01-15,Software Engineer,John,Doe,Male,Single,"Tech Corp Inc","123 Main St, City, State","PO Box 123, City, State",+1234567890,"New York","National ID",ID123456789,"Jane Doe",+1987654321,50,"Bob Doe",+1122334455,50',
+      'Jane Smith,jane.smith@example.com,+0987654321,"456 Oak Ave, City, State",1985-05-20,Teacher,Jane,Smith,Female,Married,"Springfield Elementary","456 Oak Ave, City, State","PO Box 456, City, State",+0987654321,"Springfield","Passport",PS987654321,"John Smith",+1555666777,100,,,'
+    ].join('\n');
+
+    const blob = new Blob([template], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'customer_import_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Export customers to CSV
+  const exportCustomers = () => {
+    if (customers.length === 0) {
+      alert('No customers to export');
+      return;
+    }
+
+    const headers = [
+      'Name', 'Email', 'Phone', 'Address', 'Date of Birth', 'Occupation', 
+      'First Name', 'Surname', 'Gender', 'Marital Status', 'Workplace',
+      'Residential Address', 'Postal Address', 'Contact Number', 'City',
+      'Identification Type', 'Identification Number',
+      'Beneficiary Name', 'Beneficiary Contact', 'Beneficiary Percentage',
+      'Beneficiary 2 Name', 'Beneficiary 2 Contact', 'Beneficiary 2 Percentage',
+      'KYC Status', 'Date Joined'
+    ];
+    const csvData = [
+      headers.join(','),
+      ...customers.map(customer => [
+        `"${customer.name}"`,
+        `"${customer.email}"`,
+        `"${customer.phone}"`,
+        `"${customer.address || ''}"`,
+        `"${customer.dateOfBirth || ''}"`,
+        `"${customer.occupation || ''}"`,
+        `"${customer.firstName || ''}"`,
+        `"${customer.surname || ''}"`,
+        `"${customer.gender || ''}"`,
+        `"${customer.maritalStatus || ''}"`,
+        `"${customer.workplace || ''}"`,
+        `"${customer.residentialAddress || ''}"`,
+        `"${customer.postalAddress || ''}"`,
+        `"${customer.contactNumber || ''}"`,
+        `"${customer.city || ''}"`,
+        `"${customer.identificationType || ''}"`,
+        `"${customer.identificationNumber || ''}"`,
+        `"${customer.beneficiaryName || ''}"`,
+        `"${customer.beneficiaryContact || ''}"`,
+        `"${customer.beneficiaryPercentage || ''}"`,
+        `"${customer.beneficiary2Name || ''}"`,
+        `"${customer.beneficiary2Contact || ''}"`,
+        `"${customer.beneficiary2Percentage || ''}"`,
+        `"${customer.kycStatus}"`,
+        `"${customer.dateJoined}"`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvData], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `customers_export_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+  };
+
+  // Handle file selection
+  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file && file.type === 'text/csv') {
+      setCsvFile(file);
+      setImportResults(null);
+    } else {
+      alert('Please select a valid CSV file');
+    }
+  };
+
+  // Parse CSV file
+  const parseCSV = (text: string): Record<string, string>[] => {
+    const lines = text.trim().split('\n');
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    
+    return lines.slice(1).map(line => {
+      // Handle CSV parsing with quoted fields containing commas
+      const values: string[] = [];
+      let current = '';
+      let inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim()); // Add the last value
+      
+      const obj: Record<string, string> = {};
+      headers.forEach((header, index) => {
+        obj[header.toLowerCase().replace(/\s+/g, '')] = (values[index] || '').replace(/^"|"$/g, '');
+      });
+      return obj;
+    });
+  };
+
+  // Import customers from CSV
+  const importCustomers = async () => {
+    if (!csvFile) return;
+
+    setIsImporting(true);
+    setImportResults(null);
+
+    try {
+      const text = await csvFile.text();
+      const customers = parseCSV(text);
+      
+      let successCount = 0;
+      const errors: string[] = [];
+
+      for (let i = 0; i < customers.length; i++) {
+        const customer = customers[i];
+        
+        try {
+          // Validate required fields
+          if (!customer.name || !customer.email) {
+            errors.push(`Row ${i + 2}: Name and email are required`);
+            continue;
+          }
+
+          // Prepare customer data
+          const customerData = {
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone || '',
+            address: customer.address || '',
+            dateOfBirth: customer.dateofbirth || customer.dateOfBirth || '',
+            occupation: customer.occupation || '',
+            firstName: customer.firstname || customer.firstName || '',
+            surname: customer.surname || '',
+            gender: customer.gender || '',
+            maritalStatus: customer.maritalstatus || customer.maritalStatus || '',
+            workplace: customer.workplace || '',
+            residentialAddress: customer.residentialaddress || customer.residentialAddress || '',
+            postalAddress: customer.postaladdress || customer.postalAddress || '',
+            contactNumber: customer.contactnumber || customer.contactNumber || '',
+            city: customer.city || '',
+            identificationType: customer.identificationtype || customer.identificationType || '',
+            identificationNumber: customer.identificationnumber || customer.identificationNumber || '',
+            beneficiaryName: customer.beneficiaryname || customer.beneficiaryName || '',
+            beneficiaryContact: customer.beneficiarycontact || customer.beneficiaryContact || '',
+            beneficiaryPercentage: customer.beneficiarypercentage || customer.beneficiaryPercentage || '',
+            beneficiary2Name: customer.beneficiary2name || customer.beneficiary2Name || '',
+            beneficiary2Contact: customer.beneficiary2contact || customer.beneficiary2Contact || '',
+            beneficiary2Percentage: customer.beneficiary2percentage || customer.beneficiary2Percentage || ''
+          };
+
+          await api.post('/customers', customerData);
+          successCount++;
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error 
+            ? error.message 
+            : 'Unknown error';
+          errors.push(`Row ${i + 2} (${customer.name}): ${errorMessage}`);
+        }
+      }
+
+      setImportResults({ success: successCount, errors });
+      
+      if (successCount > 0) {
+        // Refresh customer list
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Failed to import CSV:', error);
+      setImportResults({ 
+        success: 0, 
+        errors: ['Failed to read CSV file. Please check the file format.'] 
+      });
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Clear import state
+  const clearImport = () => {
+    setCsvFile(null);
+    setImportResults(null);
+    setIsImportModalOpen(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
   // Loading state
   if (isLoading && customers.length === 0) {
     return (
@@ -193,12 +416,35 @@ const Customers: React.FC = () => {
             <span className="text-sm text-gray-600">per page</span>
           </div>
         </div>
-        <Button
-          leftIcon={<UserPlus size={18} />}
-          onClick={() => navigate('/customers/new')}
-        >
-          Add Customer
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            leftIcon={<FileText size={18} />}
+            onClick={downloadTemplate}
+          >
+            Template
+          </Button>
+          <Button
+            variant="outline"
+            leftIcon={<Download size={18} />}
+            onClick={exportCustomers}
+          >
+            Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            leftIcon={<Upload size={18} />}
+            onClick={() => setIsImportModalOpen(true)}
+          >
+            Import CSV
+          </Button>
+          <Button
+            leftIcon={<UserPlus size={18} />}
+            onClick={() => navigate('/customers/new')}
+          >
+            Add Customer
+          </Button>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow overflow-hidden">
@@ -346,7 +592,7 @@ const Customers: React.FC = () => {
           <p className="text-gray-700">
             Are you sure you want to delete {currentCustomer.name}? This action cannot be undone.
           </p>
-          {currentCustomer.accounts.length > 0 && (
+          {currentCustomer.accounts && currentCustomer.accounts.length > 0 && (
             <div className="mt-4 p-4 bg-yellow-50 rounded-md">
               <p className="text-sm text-yellow-700">
                 <strong>Warning:</strong> This customer has {currentCustomer.accounts.length} active {currentCustomer.accounts.length === 1 ? 'account' : 'accounts'}.
@@ -356,6 +602,123 @@ const Customers: React.FC = () => {
           )}
         </Modal>
       )}
+
+      {/* Import CSV Modal */}
+      <Modal
+        isOpen={isImportModalOpen}
+        onClose={clearImport}
+        title="Import Customers from CSV"
+        footer={
+          <div className="flex space-x-3">
+            <Button
+              variant="outline"
+              onClick={clearImport}
+              disabled={isImporting}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={importCustomers}
+              disabled={!csvFile || isImporting}
+              isLoading={isImporting}
+            >
+              Import Customers
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <p className="text-gray-700 mb-4">
+              Upload a CSV file to import multiple customers at once. Make sure your CSV file follows the correct format.
+            </p>
+            
+            <div className="mb-4">
+              <Button
+                variant="outline"
+                leftIcon={<FileText size={16} />}
+                onClick={downloadTemplate}
+                size="sm"
+              >
+                Download CSV Template
+              </Button>
+            </div>
+
+            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv"
+                onChange={handleFileSelect}
+                className="hidden"
+                id="csv-upload"
+              />
+              <label
+                htmlFor="csv-upload"
+                className="cursor-pointer flex flex-col items-center justify-center text-gray-500 hover:text-gray-700"
+              >
+                <Upload size={48} className="mb-2" />
+                <span className="text-lg font-medium">Choose CSV file</span>
+                <span className="text-sm">or drag and drop here</span>
+              </label>
+            </div>
+
+            {csvFile && (
+              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+                <div className="flex items-center">
+                  <FileText size={16} className="text-green-600 mr-2" />
+                  <span className="text-green-800 font-medium">{csvFile.name}</span>
+                  <button
+                    onClick={() => setCsvFile(null)}
+                    className="ml-auto text-green-600 hover:text-green-800"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {importResults && (
+            <div className="mt-4">
+              <div className={`p-4 rounded-md ${importResults.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                <h4 className={`font-medium ${importResults.success > 0 ? 'text-green-800' : 'text-red-800'}`}>
+                  Import Results
+                </h4>
+                <p className={`text-sm ${importResults.success > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                  Successfully imported: {importResults.success} customers
+                </p>
+                
+                {importResults.errors.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-sm text-red-700 font-medium">Errors:</p>
+                    <ul className="mt-1 text-sm text-red-600 max-h-32 overflow-y-auto">
+                      {importResults.errors.map((error, index) => (
+                        <li key={index} className="mt-1">• {error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="text-sm text-gray-600">
+            <p className="font-medium">CSV Format Requirements:</p>
+            <ul className="mt-1 space-y-1 text-sm">
+              <li>• <strong>Required columns:</strong> name, email</li>
+              <li>• <strong>Basic info:</strong> phone, address, dateOfBirth, occupation</li>
+              <li>• <strong>Personal details:</strong> firstName, surname, gender, maritalStatus</li>
+              <li>• <strong>Contact info:</strong> workplace, residentialAddress, postalAddress, contactNumber, city</li>
+              <li>• <strong>Identification:</strong> identificationType, identificationNumber</li>
+              <li>• <strong>Beneficiaries:</strong> beneficiaryName, beneficiaryContact, beneficiaryPercentage, beneficiary2Name, beneficiary2Contact, beneficiary2Percentage</li>
+              <li>• First row should contain column headers</li>
+              <li>• Use quotes for values containing commas</li>
+              <li>• Download template for exact format</li>
+            </ul>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

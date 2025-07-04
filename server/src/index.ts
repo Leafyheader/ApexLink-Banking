@@ -14,6 +14,7 @@ import uploadRouter from './routes/upload.routes';
 import bankIncomeRouter from './routes/bankIncome.routes';
 import { reportsRouter } from './routes/reports.routes';
 import expensesRouter from './routes/expenses.routes';
+import usersRouter from './routes/users.routes';
 import { errorHandler } from './middleware/errorHandler';
 
 dotenv.config();
@@ -42,6 +43,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/bank-income', bankIncomeRouter);
 app.use('/api/reports', reportsRouter);
 app.use('/api/expenses', expensesRouter);
+app.use('/api/users', usersRouter);
 
 // Error handling middleware
 app.use(errorHandler);

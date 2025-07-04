@@ -89,6 +89,1161 @@ interface CustomerMetrics {
   }>;
 }
 
+// Shared Print Styles Component
+const PrintStyles: React.FC = () => (
+  <style dangerouslySetInnerHTML={{
+    __html: `
+      @media print {
+        @page {
+          size: A4;
+          margin: 20mm;
+        }        /* Hide all elements by default when printing */
+        body.print-ready * {
+          visibility: hidden !important;
+        }
+        
+        /* Show only print clone and its children */
+        body.print-ready #print-clone,
+        body.print-ready #print-clone * {
+          visibility: visible !important;
+        }
+        
+        /* Hide everything except the print clone */
+        body.print-ready > *:not(#print-clone) {
+          display: none !important;
+        }
+          /* Hide common UI elements */
+        header, nav, aside, .navigation, .sidebar, .menu, 
+        .filters, .controls, .buttons, .tabs, .breadcrumb,
+        .flex.items-center.justify-between, .grid.grid-cols-1.lg\\:grid-cols-4,
+        h1, p, .space-x-2, .lg\\:col-span-1, .lg\\:col-span-3,
+        .text-3xl, .text-muted-foreground, button {
+          display: none !important;
+        }
+        
+        /* Hide report content that's not the print layout */
+        .space-y-6 > *:not(.print-layout) {
+          display: none !important;
+        }        
+        /* Style for the print clone */
+        #print-clone {
+          display: block !important;
+          position: static !important;
+          font-family: Arial, sans-serif;
+          font-size: 12px;
+          line-height: 1.4;
+          color: #000;
+          background: white;
+          width: 100%;
+          height: auto;
+          overflow: visible;
+          margin: 0;
+          padding: 0;
+          box-sizing: border-box;
+          visibility: visible;
+        }
+        
+        .print-header {
+          text-align: center;
+          margin-bottom: 30px;
+          border-bottom: 2px solid #000;
+          padding-bottom: 15px;
+        }
+        
+        .print-title {
+          font-size: 24px;
+          font-weight: bold;
+          margin-bottom: 5px;
+        }
+        
+        .print-subtitle {
+          font-size: 14px;
+          color: #666;
+          margin-bottom: 10px;
+        }
+        
+        .print-date-range {
+          font-size: 12px;
+          font-style: italic;
+        }
+        
+        .print-section {
+          margin-bottom: 25px;
+          page-break-inside: avoid;
+        }
+        
+        .print-section-title {
+          font-size: 16px;
+          font-weight: bold;
+          margin-bottom: 15px;
+          color: #333;
+          border-bottom: 1px solid #ccc;
+          padding-bottom: 5px;
+        }
+        
+        .print-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-bottom: 20px;
+        }
+        
+        .print-grid-3 {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr;
+          gap: 15px;
+          margin-bottom: 20px;
+        }
+        
+        .print-grid-4 {
+          display: grid;
+          grid-template-columns: 1fr 1fr 1fr 1fr;
+          gap: 10px;
+          margin-bottom: 20px;
+        }
+        
+        .print-metric {
+          border: 1px solid #ddd;
+          padding: 15px;
+          text-align: center;
+          background: #f9f9f9;
+        }
+        
+        .print-metric-label {
+          font-size: 11px;
+          color: #666;
+          margin-bottom: 5px;
+          text-transform: uppercase;
+        }
+        
+        .print-metric-value {
+          font-size: 18px;
+          font-weight: bold;
+          color: #000;
+        }
+        
+        .print-metric-positive {
+          color: #22c55e;
+        }
+        
+        .print-metric-negative {
+          color: #ef4444;
+        }
+        
+        .print-metric-neutral {
+          color: #3b82f6;
+        }
+        
+        .print-table {
+          width: 100%;
+          border-collapse: collapse;
+          margin-bottom: 20px;
+        }
+        
+        .print-table th,
+        .print-table td {
+          border: 1px solid #ddd;
+          padding: 8px;
+          text-align: left;
+        }
+        
+        .print-table th {
+          background: #f5f5f5;
+          font-weight: bold;
+          font-size: 11px;
+        }
+        
+        .print-table td {
+          font-size: 11px;
+        }
+        
+        .print-table .text-right {
+          text-align: right;
+        }
+        
+        .print-footer {
+          position: fixed;
+          bottom: 10mm;
+          left: 0;
+          right: 0;
+          text-align: center;
+          font-size: 10px;
+          color: #666;
+          border-top: 1px solid #ccc;
+          padding-top: 10px;
+        }
+      }
+      
+      @media screen {
+        .print-layout {
+          display: none !important;
+        }
+      }
+      
+      /* Ensure no scrollbars in any print elements */
+      @media print {
+        .print-layout,
+        .print-layout * {
+          overflow: visible !important;
+          height: auto !important;
+          max-height: none !important;
+          width: auto !important;
+          max-width: 100% !important;
+        }
+        
+        /* Remove any fixed positioning that might cause issues */
+        .print-layout .print-section,
+        .print-layout .print-grid,
+        .print-layout .print-grid-3,
+        .print-layout .print-grid-4,
+        .print-layout .print-table {
+          position: static !important;
+          overflow: visible !important;
+        }
+      }
+    `
+  }} />
+);
+
+// Print Layout Component for Financial Summary
+const FinancialSummaryPrintLayout: React.FC<{
+  financialSummary: FinancialSummary;
+  filters: ReportFilter;
+  formatCurrency: (amount: number) => string;
+}> = ({ financialSummary, filters, formatCurrency }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+  return (
+    <div className="print-layout" id="financial-summary-print" style={{ 
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0
+    }}>
+      <PrintStyles />
+
+      {/* Print Header */}
+      <div className="print-header">
+        <div className="print-title">ApexLink Banking System</div>
+        <div className="print-subtitle">Financial Summary Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate}
+        </div>
+      </div>
+
+      {/* Key Financial Metrics */}
+      <div className="print-section">
+        <div className="print-section-title">Key Financial Metrics</div>
+        <div className="print-grid">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Deposits</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(financialSummary.totalDeposits)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Total Withdrawals</div>
+            <div className="print-metric-value print-metric-negative">
+              {formatCurrency(financialSummary.totalWithdrawals)}
+            </div>
+          </div>
+        </div>
+        <div className="print-grid">
+          <div className="print-metric">
+            <div className="print-metric-label">Net Cash Flow</div>
+            <div className="print-metric-value print-metric-neutral">
+              {formatCurrency(financialSummary.netCashFlow)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Bank Income</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(financialSummary.bankIncome)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Account Summary */}
+      <div className="print-section">
+        <div className="print-section-title">Account Summary</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th className="text-right">Count/Amount</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Active Accounts</td>
+              <td className="text-right">{financialSummary.activeAccounts.toLocaleString()}</td>
+              <td>Currently active customer accounts</td>
+            </tr>
+            <tr>
+              <td>New Accounts</td>
+              <td className="text-right">{financialSummary.newAccounts.toLocaleString()}</td>
+              <td>Accounts opened during the period</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Loan Portfolio Summary */}
+      <div className="print-section">
+        <div className="print-section-title">Loan Portfolio Summary</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Loan Metric</th>
+              <th className="text-right">Amount</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total Loans Outstanding</td>
+              <td className="text-right">{formatCurrency(financialSummary.totalLoans)}</td>
+              <td>Total value of all active loans</td>
+            </tr>
+            <tr>
+              <td>Loan Repayments (Period)</td>
+              <td className="text-right">{formatCurrency(financialSummary.loanRepayments)}</td>
+              <td>Repayments received during period</td>
+            </tr>
+            <tr>
+              <td>Overdue Loans</td>
+              <td className="text-right">{formatCurrency(financialSummary.overdueLoans)}</td>
+              <td>Loans past due date</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Profitability Analysis */}
+      <div className="print-section">
+        <div className="print-section-title">Profitability Analysis</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th className="text-right">Amount</th>
+              <th>% of Income</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Total Income</td>
+              <td className="text-right">{formatCurrency(financialSummary.bankIncome)}</td>
+              <td className="text-right">100.0%</td>
+            </tr>
+            <tr>
+              <td>Operating Expenses</td>
+              <td className="text-right">{formatCurrency(financialSummary.operatingExpenses)}</td>
+              <td className="text-right">
+                {((financialSummary.operatingExpenses / financialSummary.bankIncome) * 100).toFixed(1)}%
+              </td>
+            </tr>
+            <tr style={{ borderTop: '2px solid #000', fontWeight: 'bold' }}>
+              <td>Net Profit</td>
+              <td className="text-right">{formatCurrency(financialSummary.netProfit)}</td>
+              <td className="text-right">
+                {((financialSummary.netProfit / financialSummary.bankIncome) * 100).toFixed(1)}%
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Key Ratios */}
+      <div className="print-section">
+        <div className="print-section-title">Key Performance Ratios</div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">Profit Margin</div>
+            <div className="print-metric-value">
+              {((financialSummary.netProfit / financialSummary.bankIncome) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Expense Ratio</div>
+            <div className="print-metric-value">
+              {((financialSummary.operatingExpenses / financialSummary.bankIncome) * 100).toFixed(1)}%
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Loan Recovery Rate</div>
+            <div className="print-metric-value">
+              {financialSummary.totalLoans > 0 
+                ? ((financialSummary.loanRepayments / financialSummary.totalLoans) * 100).toFixed(1)
+                : '0.0'
+              }%
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Report Notes */}
+      <div className="print-section">
+        <div className="print-section-title">Report Notes</div>
+        <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
+          <li>All amounts are displayed in USD unless otherwise specified</li>
+          <li>This report covers the period from {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} to {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}</li>
+          <li>Active accounts include all customer accounts with non-zero balances or recent activity</li>
+          <li>Overdue loans are calculated based on payment due dates and current date</li>
+          <li>Operating expenses include only approved and paid expenses</li>
+          <li>Net profit is calculated as total income minus operating expenses</li>
+        </ul>
+      </div>      {/* Print Footer */}
+      <div className="print-footer">
+        <div>ApexLink Banking System - Financial Summary Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
+// Print Layout Component for Account Analytics
+const AccountAnalyticsPrintLayout: React.FC<{
+  accountAnalytics: AccountAnalytics[];
+  filters: ReportFilter;
+  formatCurrency: (amount: number) => string;
+  formatPercentage: (value: number) => string;
+}> = ({ accountAnalytics, filters, formatCurrency, formatPercentage }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  const totalAccounts = accountAnalytics.reduce((sum, acc) => sum + acc.count, 0);
+  const totalBalance = accountAnalytics.reduce((sum, acc) => sum + acc.totalBalance, 0);
+  const avgBalance = totalBalance / totalAccounts;
+
+  return (
+    <div className="print-layout" id="account-analytics-print" style={{ 
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0
+    }}>
+      <PrintStyles />
+
+      {/* Print Header */}
+      <div className="print-header">
+        <div className="print-title">ApexLink Banking System</div>
+        <div className="print-subtitle">Account Analytics Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate}
+        </div>
+      </div>
+
+      {/* Portfolio Overview */}
+      <div className="print-section">
+        <div className="print-section-title">Account Portfolio Overview</div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Accounts</div>
+            <div className="print-metric-value print-metric-neutral">
+              {totalAccounts.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Total Portfolio Value</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(totalBalance)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Average Account Balance</div>
+            <div className="print-metric-value print-metric-neutral">
+              {formatCurrency(avgBalance)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Account Type Analysis */}
+      <div className="print-section">
+        <div className="print-section-title">Account Type Analysis</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Account Type</th>
+              <th className="text-right">Count</th>
+              <th className="text-right">Total Balance</th>
+              <th className="text-right">Average Balance</th>
+              <th className="text-right">Growth Rate</th>
+              <th className="text-right">% of Portfolio</th>
+            </tr>
+          </thead>
+          <tbody>
+            {accountAnalytics.map((account) => (
+              <tr key={account.accountType}>
+                <td style={{ fontWeight: 'bold' }}>{account.accountType}</td>
+                <td className="text-right">{account.count.toLocaleString()}</td>
+                <td className="text-right">{formatCurrency(account.totalBalance)}</td>
+                <td className="text-right">{formatCurrency(account.averageBalance)}</td>
+                <td className="text-right">{formatPercentage(account.growthRate)}</td>
+                <td className="text-right">{((account.totalBalance / totalBalance) * 100).toFixed(1)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Performance Metrics */}
+      <div className="print-section">
+        <div className="print-section-title">Performance Metrics by Account Type</div>
+        <div className="print-grid-4">
+          {accountAnalytics.map((account) => (
+            <div key={account.accountType} className="print-metric">
+              <div className="print-metric-label">{account.accountType} Growth</div>
+              <div className={`print-metric-value ${account.growthRate > 10 ? 'print-metric-positive' : account.growthRate > 0 ? 'print-metric-neutral' : 'print-metric-negative'}`}>
+                {formatPercentage(account.growthRate)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Key Insights */}
+      <div className="print-section">
+        <div className="print-section-title">Key Insights</div>
+        <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
+          <li>Total accounts across all types: {totalAccounts.toLocaleString()}</li>
+          <li>Highest performing account type: {accountAnalytics.reduce((max, acc) => acc.growthRate > max.growthRate ? acc : max, accountAnalytics[0])?.accountType || 'N/A'}</li>
+          <li>Largest account segment by balance: {accountAnalytics.reduce((max, acc) => acc.totalBalance > max.totalBalance ? acc : max, accountAnalytics[0])?.accountType || 'N/A'}</li>
+          <li>Growth rates are calculated based on the selected reporting period</li>
+          <li>Average balance calculations include all active accounts in each category</li>
+        </ul>
+      </div>
+
+      {/* Print Footer */}
+      <div className="print-footer">
+        <div>ApexLink Banking System - Account Analytics Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
+// Print Layout Component for Loan Portfolio
+const LoanPortfolioPrintLayout: React.FC<{
+  loanPortfolio: LoanPortfolio;
+  filters: ReportFilter;
+  formatCurrency: (amount: number) => string;
+  formatPercentage: (value: number) => string;
+}> = ({ loanPortfolio, filters, formatCurrency, formatPercentage }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  return (
+    <div className="print-layout" id="loan-portfolio-print" style={{ 
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0
+    }}>
+      <PrintStyles />
+
+      {/* Print Header */}
+      <div className="print-header">
+        <div className="print-title">ApexLink Banking System</div>
+        <div className="print-subtitle">Loan Portfolio Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate}
+        </div>
+      </div>
+
+      {/* Portfolio Summary */}
+      <div className="print-section">
+        <div className="print-section-title">Loan Portfolio Summary</div>
+        <div className="print-grid-4">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Loans</div>
+            <div className="print-metric-value print-metric-neutral">
+              {loanPortfolio.totalLoans.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Active Loans</div>
+            <div className="print-metric-value print-metric-positive">
+              {loanPortfolio.activeLoans.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Completed Loans</div>
+            <div className="print-metric-value print-metric-neutral">
+              {loanPortfolio.completedLoans.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Defaulted Loans</div>
+            <div className="print-metric-value print-metric-negative">
+              {loanPortfolio.defaultedLoans.toLocaleString()}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Financial Summary */}
+      <div className="print-section">
+        <div className="print-section-title">Financial Overview</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th className="text-right">Amount</th>
+              <th className="text-right">% of Portfolio</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 'bold' }}>Total Disbursed</td>
+              <td className="text-right">{formatCurrency(loanPortfolio.totalDisbursed)}</td>
+              <td className="text-right">100.0%</td>
+              <td>Total amount disbursed to borrowers</td>
+            </tr>
+            <tr>
+              <td>Total Repaid</td>
+              <td className="text-right">{formatCurrency(loanPortfolio.totalRepaid)}</td>
+              <td className="text-right">{((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</td>
+              <td>Amount repaid by borrowers</td>
+            </tr>
+            <tr>
+              <td>Outstanding Amount</td>
+              <td className="text-right">{formatCurrency(loanPortfolio.outstandingAmount)}</td>
+              <td className="text-right">{((loanPortfolio.outstandingAmount / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</td>
+              <td>Amount still owed by borrowers</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Risk Analysis */}
+      <div className="print-section">
+        <div className="print-section-title">Risk Analysis</div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">Portfolio at Risk</div>
+            <div className="print-metric-value print-metric-negative">
+              {formatPercentage(loanPortfolio.portfolioAtRisk)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Default Rate</div>
+            <div className="print-metric-value print-metric-negative">
+              {formatPercentage((loanPortfolio.defaultedLoans / loanPortfolio.totalLoans) * 100)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Recovery Rate</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatPercentage((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Loan Status Distribution */}
+      <div className="print-section">
+        <div className="print-section-title">Loan Status Distribution</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Status</th>
+              <th className="text-right">Count</th>
+              <th className="text-right">% of Total</th>
+              <th>Status Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ fontWeight: 'bold', color: '#22c55e' }}>Active</td>
+              <td className="text-right">{loanPortfolio.activeLoans.toLocaleString()}</td>
+              <td className="text-right">{((loanPortfolio.activeLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td>Loans currently being repaid</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 'bold', color: '#3b82f6' }}>Completed</td>
+              <td className="text-right">{loanPortfolio.completedLoans.toLocaleString()}</td>
+              <td className="text-right">{((loanPortfolio.completedLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td>Loans fully repaid</td>
+            </tr>
+            <tr>
+              <td style={{ fontWeight: 'bold', color: '#ef4444' }}>Defaulted</td>
+              <td className="text-right">{loanPortfolio.defaultedLoans.toLocaleString()}</td>
+              <td className="text-right">{((loanPortfolio.defaultedLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td>Loans in default status</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Key Performance Indicators */}
+      <div className="print-section">
+        <div className="print-section-title">Key Performance Indicators</div>
+        <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
+          <li>Total loan portfolio value: {formatCurrency(loanPortfolio.totalDisbursed)}</li>
+          <li>Average loan size: {formatCurrency(loanPortfolio.totalDisbursed / loanPortfolio.totalLoans)}</li>
+          <li>Collection efficiency: {((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</li>
+          <li>Risk concentration: Portfolio at Risk of {formatPercentage(loanPortfolio.portfolioAtRisk)}</li>
+          <li>Active loan ratio: {((loanPortfolio.activeLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}% of total loans</li>
+          <li>Outstanding balance represents {((loanPortfolio.outstandingAmount / loanPortfolio.totalDisbursed) * 100).toFixed(1)}% of total disbursements</li>
+        </ul>
+      </div>
+
+      {/* Print Footer */}
+      <div className="print-footer">
+        <div>ApexLink Banking System - Loan Portfolio Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
+// Print Layout Component for Transaction Summary
+const TransactionSummaryPrintLayout: React.FC<{
+  transactionSummary: TransactionSummary[];
+  filters: ReportFilter;
+  formatCurrency: (amount: number) => string;
+}> = ({ transactionSummary, filters, formatCurrency }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  const totals = transactionSummary.reduce(
+    (acc, day) => ({
+      deposits: acc.deposits + day.deposits,
+      withdrawals: acc.withdrawals + day.withdrawals,
+      transfers: acc.transfers + day.transfers,
+      loanRepayments: acc.loanRepayments + day.loanRepayments,
+      fees: acc.fees + day.fees,
+      totalVolume: acc.totalVolume + day.totalVolume,
+    }),
+    { deposits: 0, withdrawals: 0, transfers: 0, loanRepayments: 0, fees: 0, totalVolume: 0 }
+  );
+
+  const avgDaily = {
+    deposits: totals.deposits / transactionSummary.length,
+    withdrawals: totals.withdrawals / transactionSummary.length,
+    transfers: totals.transfers / transactionSummary.length,
+    loanRepayments: totals.loanRepayments / transactionSummary.length,
+    fees: totals.fees / transactionSummary.length,
+    totalVolume: totals.totalVolume / transactionSummary.length,
+  };
+
+  return (
+    <div className="print-layout" id="transaction-summary-print" style={{ 
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0
+    }}>
+      <PrintStyles />
+
+      {/* Print Header */}
+      <div className="print-header">
+        <div className="print-title">ApexLink Banking System</div>
+        <div className="print-subtitle">Transaction Summary Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate} | {transactionSummary.length} reporting days
+        </div>
+      </div>
+
+      {/* Transaction Totals */}
+      <div className="print-section">
+        <div className="print-section-title">Transaction Volume Summary</div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Deposits</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(totals.deposits)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Total Withdrawals</div>
+            <div className="print-metric-value print-metric-negative">
+              {formatCurrency(totals.withdrawals)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Net Cash Flow</div>
+            <div className="print-metric-value print-metric-neutral">
+              {formatCurrency(totals.deposits - totals.withdrawals)}
+            </div>
+          </div>
+        </div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Transfers</div>
+            <div className="print-metric-value print-metric-neutral">
+              {formatCurrency(totals.transfers)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Loan Repayments</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(totals.loanRepayments)}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Total Fees</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(totals.fees)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Daily Averages */}
+      <div className="print-section">
+        <div className="print-section-title">Daily Average Analysis</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Transaction Type</th>
+              <th className="text-right">Total Amount</th>
+              <th className="text-right">Daily Average</th>
+              <th className="text-right">% of Total Volume</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Deposits</td>
+              <td className="text-right">{formatCurrency(totals.deposits)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.deposits)}</td>
+              <td className="text-right">{((totals.deposits / totals.totalVolume) * 100).toFixed(1)}%</td>
+            </tr>
+            <tr>
+              <td>Withdrawals</td>
+              <td className="text-right">{formatCurrency(totals.withdrawals)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.withdrawals)}</td>
+              <td className="text-right">{((totals.withdrawals / totals.totalVolume) * 100).toFixed(1)}%</td>
+            </tr>
+            <tr>
+              <td>Transfers</td>
+              <td className="text-right">{formatCurrency(totals.transfers)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.transfers)}</td>
+              <td className="text-right">{((totals.transfers / totals.totalVolume) * 100).toFixed(1)}%</td>
+            </tr>
+            <tr>
+              <td>Loan Repayments</td>
+              <td className="text-right">{formatCurrency(totals.loanRepayments)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.loanRepayments)}</td>
+              <td className="text-right">{((totals.loanRepayments / totals.totalVolume) * 100).toFixed(1)}%</td>
+            </tr>
+            <tr>
+              <td>Fees</td>
+              <td className="text-right">{formatCurrency(totals.fees)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.fees)}</td>
+              <td className="text-right">{((totals.fees / totals.totalVolume) * 100).toFixed(1)}%</td>
+            </tr>
+            <tr style={{ borderTop: '2px solid #000', fontWeight: 'bold' }}>
+              <td>Total Volume</td>
+              <td className="text-right">{formatCurrency(totals.totalVolume)}</td>
+              <td className="text-right">{formatCurrency(avgDaily.totalVolume)}</td>
+              <td className="text-right">100.0%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Daily Transaction Detail */}
+      <div className="print-section">
+        <div className="print-section-title">Daily Transaction Detail</div>
+        <table className="print-table" style={{ fontSize: '10px' }}>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th className="text-right">Deposits</th>
+              <th className="text-right">Withdrawals</th>
+              <th className="text-right">Transfers</th>
+              <th className="text-right">Loan Repay.</th>
+              <th className="text-right">Fees</th>
+              <th className="text-right">Total Volume</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transactionSummary.map((summary, index) => (
+              <tr key={index}>
+                <td style={{ fontWeight: 'bold' }}>{formatDate(new Date(summary.date), 'MMM dd, yyyy')}</td>
+                <td className="text-right">{formatCurrency(summary.deposits)}</td>
+                <td className="text-right">{formatCurrency(summary.withdrawals)}</td>
+                <td className="text-right">{formatCurrency(summary.transfers)}</td>
+                <td className="text-right">{formatCurrency(summary.loanRepayments)}</td>
+                <td className="text-right">{formatCurrency(summary.fees)}</td>
+                <td className="text-right" style={{ fontWeight: 'bold' }}>{formatCurrency(summary.totalVolume)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Transaction Insights */}
+      <div className="print-section">
+        <div className="print-section-title">Transaction Insights</div>
+        <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
+          <li>Total transaction volume for the period: {formatCurrency(totals.totalVolume)}</li>
+          <li>Average daily transaction volume: {formatCurrency(avgDaily.totalVolume)}</li>
+          <li>Net cash flow (deposits - withdrawals): {formatCurrency(totals.deposits - totals.withdrawals)}</li>
+          <li>Deposit to withdrawal ratio: {(totals.deposits / totals.withdrawals).toFixed(2)}:1</li>
+          <li>Fee income represents {((totals.fees / totals.totalVolume) * 100).toFixed(2)}% of total transaction volume</li>
+          <li>Loan repayments contributed {((totals.loanRepayments / totals.totalVolume) * 100).toFixed(1)}% to total volume</li>
+        </ul>
+      </div>
+
+      {/* Print Footer */}
+      <div className="print-footer">
+        <div>ApexLink Banking System - Transaction Summary Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
+// Print Layout Component for Customer Metrics
+const CustomerMetricsPrintLayout: React.FC<{
+  customerMetrics: CustomerMetrics;
+  filters: ReportFilter;
+  formatCurrency: (amount: number) => string;
+  formatPercentage: (value: number) => string;
+}> = ({ customerMetrics, filters, formatCurrency, formatPercentage }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric'
+  });
+
+  return (
+    <div className="print-layout" id="customer-metrics-print" style={{ 
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0
+    }}>
+      <PrintStyles />
+
+      {/* Print Header */}
+      <div className="print-header">
+        <div className="print-title">ApexLink Banking System</div>
+        <div className="print-subtitle">Customer Metrics Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate}
+        </div>
+      </div>
+
+      {/* Customer Overview */}
+      <div className="print-section">
+        <div className="print-section-title">Customer Base Overview</div>
+        <div className="print-grid-4">
+          <div className="print-metric">
+            <div className="print-metric-label">Total Customers</div>
+            <div className="print-metric-value print-metric-neutral">
+              {customerMetrics.totalCustomers.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Active Customers</div>
+            <div className="print-metric-value print-metric-positive">
+              {customerMetrics.activeCustomers.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">New Customers</div>
+            <div className="print-metric-value print-metric-positive">
+              {customerMetrics.newCustomers.toLocaleString()}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Retention Rate</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatPercentage(customerMetrics.customerRetentionRate)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Customer Engagement */}
+      <div className="print-section">
+        <div className="print-section-title">Customer Engagement Metrics</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th className="text-right">Value</th>
+              <th className="text-right">Percentage</th>
+              <th>Description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Active Customer Rate</td>
+              <td className="text-right">{customerMetrics.activeCustomers.toLocaleString()}</td>
+              <td className="text-right">{((customerMetrics.activeCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
+              <td>Customers with recent activity</td>
+            </tr>
+            <tr>
+              <td>Customer Growth</td>
+              <td className="text-right">{customerMetrics.newCustomers.toLocaleString()}</td>
+              <td className="text-right">{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
+              <td>New customers this period</td>
+            </tr>
+            <tr>
+              <td>Average Accounts per Customer</td>
+              <td className="text-right">{customerMetrics.averageAccountsPerCustomer.toFixed(2)}</td>
+              <td className="text-right">-</td>
+              <td>Cross-selling effectiveness</td>
+            </tr>
+            <tr>
+              <td>Customer Retention Rate</td>
+              <td className="text-right">-</td>
+              <td className="text-right">{formatPercentage(customerMetrics.customerRetentionRate)}</td>
+              <td>Customer loyalty indicator</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      {/* Top Customers */}
+      <div className="print-section">
+        <div className="print-section-title">Top Customers by Account Balance</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Rank</th>
+              <th>Customer Name</th>
+              <th className="text-right">Total Balance</th>
+              <th className="text-right">Account Count</th>
+              <th className="text-right">Avg per Account</th>
+            </tr>
+          </thead>
+          <tbody>
+            {customerMetrics.topCustomersByBalance.map((customer, index) => (
+              <tr key={index}>
+                <td style={{ fontWeight: 'bold' }}>#{index + 1}</td>
+                <td>{customer.name}</td>
+                <td className="text-right" style={{ fontWeight: 'bold' }}>{formatCurrency(customer.totalBalance)}</td>
+                <td className="text-right">{customer.accountCount}</td>
+                <td className="text-right">{formatCurrency(customer.totalBalance / customer.accountCount)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Customer Analysis */}
+      <div className="print-section">
+        <div className="print-section-title">Customer Segmentation Analysis</div>
+        <div className="print-grid-3">
+          <div className="print-metric">
+            <div className="print-metric-label">High Value Customers</div>
+            <div className="print-metric-value print-metric-positive">
+              {customerMetrics.topCustomersByBalance.length}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Total HVC Balance</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0))}
+            </div>
+          </div>
+          <div className="print-metric">
+            <div className="print-metric-label">Avg HVC Balance</div>
+            <div className="print-metric-value print-metric-positive">
+              {formatCurrency(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0) / customerMetrics.topCustomersByBalance.length)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Key Performance Indicators */}
+      <div className="print-section">
+        <div className="print-section-title">Customer KPIs & Insights</div>
+        <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
+          <li>Customer base composition: {customerMetrics.totalCustomers.toLocaleString()} total customers with {((customerMetrics.activeCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}% active</li>
+          <li>Growth rate: {customerMetrics.newCustomers} new customers added during reporting period</li>
+          <li>Cross-selling success: Average of {customerMetrics.averageAccountsPerCustomer.toFixed(2)} accounts per customer</li>
+          <li>Customer loyalty: {formatPercentage(customerMetrics.customerRetentionRate)} retention rate indicates strong customer satisfaction</li>
+          <li>High-value segment: Top {customerMetrics.topCustomersByBalance.length} customers hold {formatCurrency(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0))}</li>
+          <li>Customer concentration: Top customer represents {customerMetrics.topCustomersByBalance.length > 0 ? ((customerMetrics.topCustomersByBalance[0].totalBalance / customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0)) * 100).toFixed(1) : '0'}% of top customer balances</li>
+        </ul>
+      </div>
+
+      {/* Report Summary */}
+      <div className="print-section">
+        <div className="print-section-title">Executive Summary</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Key Metric</th>
+              <th className="text-right">Current Value</th>
+              <th>Performance Assessment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Customer Growth</td>
+              <td className="text-right">{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
+              <td>{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100) > 5 ? 'Strong Growth' : 'Moderate Growth'}</td>
+            </tr>
+            <tr>
+              <td>Customer Retention</td>
+              <td className="text-right">{formatPercentage(customerMetrics.customerRetentionRate)}</td>
+              <td>{customerMetrics.customerRetentionRate > 90 ? 'Excellent' : customerMetrics.customerRetentionRate > 80 ? 'Good' : 'Needs Improvement'}</td>
+            </tr>
+            <tr>
+              <td>Cross-selling Ratio</td>
+              <td className="text-right">{customerMetrics.averageAccountsPerCustomer.toFixed(2)}</td>
+              <td>{customerMetrics.averageAccountsPerCustomer > 2 ? 'Effective' : 'Opportunity for Improvement'}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>      {/* Print Footer */}
+      <div className="print-footer">
+        <div>ApexLink Banking System - Customer Metrics Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
 export default function Reports() {
   const [filters, setFilters] = useState<ReportFilter>({    dateFrom: formatDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
     dateTo: formatDate(new Date(), 'yyyy-MM-dd'),
@@ -153,11 +1308,51 @@ export default function Reports() {
   const exportReport = (format: 'pdf' | 'excel' | 'csv') => {
     // TODO: Implement export functionality
     console.log(`Exporting ${selectedReport} as ${format}`);
-  };
+  };  const printReport = () => {
+    // Get the current report's print layout ID
+    const printLayoutId = `${selectedReport}-print`;
+    const currentPrintLayout = document.getElementById(printLayoutId);
+    
+    if (!currentPrintLayout) {
+      console.warn(`Print layout not found for ${selectedReport}`);
+      return;
+    }
 
-  const printReport = () => {
-    window.print();
-  };  useEffect(() => {
+    // Hide all print layouts first
+    const allPrintLayouts = document.querySelectorAll('.print-layout');
+    allPrintLayouts.forEach(layout => {
+      (layout as HTMLElement).style.display = 'none';
+    });
+    
+    // Clone the print layout to ensure it's completely isolated
+    const printClone = currentPrintLayout.cloneNode(true) as HTMLElement;
+    printClone.style.display = 'block';
+    printClone.style.position = 'fixed';
+    printClone.style.top = '0';
+    printClone.style.left = '0';
+    printClone.style.width = '100%';
+    printClone.style.height = '100%';
+    printClone.style.zIndex = '9999';
+    printClone.style.background = 'white';
+    printClone.id = 'print-clone';
+    
+    // Add print-ready class and append clone
+    document.body.classList.add('print-ready');
+    document.body.appendChild(printClone);
+    
+    setTimeout(() => {
+      window.print();
+      
+      // Restore after printing
+      setTimeout(() => {
+        document.body.classList.remove('print-ready');
+        const cloneElement = document.getElementById('print-clone');
+        if (cloneElement) {
+          document.body.removeChild(cloneElement);
+        }
+      }, 100);
+    }, 100);
+  };useEffect(() => {
     generateReport();
   }, [selectedReport, filters, generateReport]);
 
@@ -605,10 +1800,52 @@ export default function Reports() {
       default:
         return renderFinancialSummary();
     }
-  };
-
-  return (
+  };  return (
     <div className="space-y-6 p-6">
+      {/* Print Layouts for All Report Types */}
+      {selectedReport === 'financial-summary' && financialSummary && (
+        <FinancialSummaryPrintLayout
+          financialSummary={financialSummary}
+          filters={filters}
+          formatCurrency={formatCurrency}
+        />
+      )}
+      
+      {selectedReport === 'account-analytics' && accountAnalytics && accountAnalytics.length > 0 && (
+        <AccountAnalyticsPrintLayout
+          accountAnalytics={accountAnalytics}
+          filters={filters}
+          formatCurrency={formatCurrency}
+          formatPercentage={formatPercentage}
+        />
+      )}
+      
+      {selectedReport === 'loan-portfolio' && loanPortfolio && (
+        <LoanPortfolioPrintLayout
+          loanPortfolio={loanPortfolio}
+          filters={filters}
+          formatCurrency={formatCurrency}
+          formatPercentage={formatPercentage}
+        />
+      )}
+      
+      {selectedReport === 'transaction-summary' && transactionSummary && transactionSummary.length > 0 && (
+        <TransactionSummaryPrintLayout
+          transactionSummary={transactionSummary}
+          filters={filters}
+          formatCurrency={formatCurrency}
+        />
+      )}
+      
+      {selectedReport === 'customer-metrics' && customerMetrics && (
+        <CustomerMetricsPrintLayout
+          customerMetrics={customerMetrics}
+          filters={filters}
+          formatCurrency={formatCurrency}
+          formatPercentage={formatPercentage}
+        />
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reports & Analytics</h1>

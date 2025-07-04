@@ -1,7 +1,30 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.validateAccountStatus = exports.validateAccountData = exports.validateKYCStatus = exports.validateCustomerData = exports.validateLogin = void 0;
+exports.validateAccountStatus = exports.validateAccountData = exports.validateKYCStatus = exports.validateCustomerData = exports.validateLogin = exports.validateUserRegistration = void 0;
 const express_validator_1 = require("express-validator");
+exports.validateUserRegistration = [
+    (0, express_validator_1.body)('name')
+        .notEmpty().withMessage('Name is required')
+        .isLength({ min: 2 }).withMessage('Name must be at least 2 characters long'),
+    (0, express_validator_1.body)('username')
+        .notEmpty().withMessage('Username is required')
+        .isLength({ min: 3 }).withMessage('Username must be at least 3 characters long')
+        .matches(/^[a-zA-Z0-9_]+$/).withMessage('Username can only contain letters, numbers, and underscores'),
+    (0, express_validator_1.body)('password')
+        .notEmpty().withMessage('Password is required')
+        .isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+    (0, express_validator_1.body)('role')
+        .notEmpty().withMessage('Role is required')
+        .isIn(['ADMIN', 'MANAGER', 'TELLER']).withMessage('Role must be ADMIN, MANAGER, or TELLER'),
+    (req, res, next) => {
+        const errors = (0, express_validator_1.validationResult)(req);
+        if (!errors.isEmpty()) {
+            res.status(400).json({ errors: errors.array() });
+            return;
+        }
+        next();
+    }
+];
 exports.validateLogin = [
     (0, express_validator_1.body)('username')
         .notEmpty().withMessage('Username is required')

@@ -19,6 +19,7 @@ const upload_routes_1 = __importDefault(require("./routes/upload.routes"));
 const bankIncome_routes_1 = __importDefault(require("./routes/bankIncome.routes"));
 const reports_routes_1 = require("./routes/reports.routes");
 const expenses_routes_1 = __importDefault(require("./routes/expenses.routes"));
+const users_routes_1 = __importDefault(require("./routes/users.routes"));
 const errorHandler_1 = require("./middleware/errorHandler");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -42,6 +43,7 @@ app.use('/api/upload', upload_routes_1.default);
 app.use('/api/bank-income', bankIncome_routes_1.default);
 app.use('/api/reports', reports_routes_1.reportsRouter);
 app.use('/api/expenses', expenses_routes_1.default);
+app.use('/api/users', users_routes_1.default);
 // Error handling middleware
 app.use(errorHandler_1.errorHandler);
 // Start server
