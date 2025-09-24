@@ -1,0 +1,3 @@
+name,email,phone,beneficiaryName,beneficiaryContact,beneficiaryRelation,beneficiaryPercentage,beneficiary2Name,beneficiary2Contact,beneficiary2Relation,beneficiary2Percentage
+"Test Customer 1","test1@example.com","+1234567890","Jane Doe","+1987654321","Wife","50","Bob Smith","+1122334455","Brother","50"
+"Test Customer 2","test2@example.com","+0987654321","John Smith","+1555666777","Husband","60","Mary Johnson","+1333444555","Sister","40"

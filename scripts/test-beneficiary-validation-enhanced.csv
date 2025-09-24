@@ -1,0 +1,9 @@
+name,email,phone,beneficiaryName,beneficiaryContact,beneficiaryRelation,beneficiaryPercentage
+"Valid Customer 1","valid1@example.com","+1234567890","John Doe","+1987654321","Spouse","100"
+"Invalid Customer 1","invalid1@example.com","+0987654321","","","","100"
+"Invalid Customer 2","invalid2@example.com","+1111222333",null,"","","100"
+"Invalid Customer 3","invalid3@example.com","+2222333444","NULL","+1333444555","Brother","100"
+"Invalid Customer 4","invalid4@example.com","+3333444555","null","+1444555666","Sister","100"
+"Invalid Customer 5","invalid5@example.com","+4444555666","   ","+1555666777","Mother","100"
+"Valid Customer 2","valid2@example.com","+5555666777","Jane Smith","+1666777888","Wife","100"
+"Invalid Customer 6","invalid6@example.com","+6666777888","Null","+1777888999","Father","100"
