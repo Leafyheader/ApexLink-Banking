@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE `account` ADD COLUMN `authorizationStatus` ENUM('APPROVED', 'PENDING', 'REJECTED') NOT NULL DEFAULT 'PENDING',
-    ADD COLUMN `createdBy` VARCHAR(191) NULL;

@@ -1,0 +1,3 @@
+ALTER TABLE `Customer`
+  ADD COLUMN `isHidden` BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN `hiddenAt` DATETIME(3) NULL;

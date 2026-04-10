@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateAccountStatus = exports.deleteAccount = exports.updateAccount = exports.createAccount = exports.getAccountById = exports.getAccounts = void 0;
+exports.bulkActivateAccounts = exports.updateAccountStatus = exports.deleteAccount = exports.updateAccount = exports.createAccount = exports.getAccountById = exports.getAccounts = void 0;
 const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
 const idGenerator_1 = require("../utils/idGenerator");
@@ -165,7 +165,7 @@ const createAccount = async (req, res) => {
             res.status(400).json({ errors: errors.array() });
             return;
         }
-        const { customerId, type, balance, currency, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
+        const { customerId, type, accountNumber, balance, currency, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
         if (!req.user) {
             res.status(401).json({ message: 'User not authenticated' });
             return;
@@ -177,10 +177,18 @@ const createAccount = async (req, res) => {
             res.status(404).json({ message: 'Customer not found' });
             return;
         }
-        // Generate account number using the new ID generator
-        const accountNumber = await (0, idGenerator_1.generateAccountNumber)(); // Create the account with pending authorization
+        const providedAccountNumber = typeof accountNumber === 'string' ? accountNumber.trim().toUpperCase() : '';
+        const finalAccountNumber = providedAccountNumber || await (0, idGenerator_1.generateAccountNumber)();
+        const existingWithAccountNumber = await prisma.account.findUnique({
+            where: { accountNumber: finalAccountNumber }
+        });
+        if (existingWithAccountNumber) {
+            res.status(409).json({ message: `Account number ${finalAccountNumber} already exists` });
+            return;
+        }
+        // Create the account with pending authorization
         const createData = {
-            accountNumber,
+            accountNumber: finalAccountNumber,
             type,
             balance: balance || 0,
             currency: currency || 'USD',
@@ -238,7 +246,7 @@ const updateAccount = async (req, res) => {
             return;
         }
         const { id } = req.params;
-        const { status, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
+        const { status, minimumBalance, overdraftLimit, balance, shareBalance, sharesAvailableBalance } = req.body;
         // Check if account exists
         const existingAccount = await prisma.account.findUnique({ where: { id } });
         if (!existingAccount) {
@@ -252,6 +260,9 @@ const updateAccount = async (req, res) => {
             overdraftLimit,
             updatedAt: new Date()
         };
+        if (balance !== undefined) {
+            updateData.balance = balance;
+        }
         if (shareBalance !== undefined) {
             updateData.shareBalance = shareBalance;
         }
@@ -354,3 +365,28 @@ const updateAccountStatus = async (req, res) => {
     }
 };
 exports.updateAccountStatus = updateAccountStatus;
+// Bulk activate accounts
+const bulkActivateAccounts = async (_req, res) => {
+    try {
+        const result = await prisma.account.updateMany({
+            where: {
+                status: {
+                    not: 'ACTIVE',
+                },
+            },
+            data: {
+                status: 'ACTIVE',
+                updatedAt: new Date(),
+            },
+        });
+        res.json({
+            message: 'Bulk activation completed',
+            activatedCount: result.count,
+        });
+    }
+    catch (error) {
+        console.error('Error bulk activating accounts:', error);
+        res.status(500).json({ message: 'Failed to bulk activate accounts' });
+    }
+};
+exports.bulkActivateAccounts = bulkActivateAccounts;

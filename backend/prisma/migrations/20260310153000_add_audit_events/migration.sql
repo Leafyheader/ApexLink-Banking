@@ -1,0 +1,30 @@
+-- Create immutable append-only audit events table
+CREATE TABLE `AuditEvent` (
+  `id` VARCHAR(191) NOT NULL,
+  `eventType` VARCHAR(191) NOT NULL,
+  `entityType` VARCHAR(191) NOT NULL,
+  `entityId` VARCHAR(191) NULL,
+  `action` VARCHAR(191) NOT NULL,
+  `outcome` VARCHAR(191) NOT NULL,
+  `actorUserId` VARCHAR(191) NULL,
+  `actorRole` VARCHAR(191) NULL,
+  `requestId` VARCHAR(191) NULL,
+  `method` VARCHAR(191) NULL,
+  `route` VARCHAR(191) NULL,
+  `reference` VARCHAR(191) NULL,
+  `ipAddress` VARCHAR(191) NULL,
+  `userAgent` VARCHAR(512) NULL,
+  `beforeData` JSON NULL,
+  `afterData` JSON NULL,
+  `metadata` JSON NULL,
+  `prevHash` CHAR(64) NULL,
+  `eventHash` CHAR(64) NOT NULL,
+  `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+
+  UNIQUE INDEX `AuditEvent_eventHash_key`(`eventHash`),
+  INDEX `AuditEvent_createdAt_idx`(`createdAt`),
+  INDEX `AuditEvent_entityType_entityId_idx`(`entityType`, `entityId`),
+  INDEX `AuditEvent_actorUserId_createdAt_idx`(`actorUserId`, `createdAt`),
+  INDEX `AuditEvent_eventType_createdAt_idx`(`eventType`, `createdAt`),
+  PRIMARY KEY (`id`)
+) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;

@@ -13,8 +13,18 @@ router.get('/', auth_1.authenticateToken, transactions_controller_1.getTransacti
 router.get('/stats', auth_1.authenticateToken, transactions_controller_1.getTransactionStats);
 // GET /api/transactions/:id - Get a specific transaction
 router.get('/:id', auth_1.authenticateToken, transactions_controller_1.getTransactionById);
-// POST /api/transactions - Create a new transaction
+// POST /api/transactions - Create a new transaction (legacy implementation for loan repayments)
 router.post('/', auth_1.authenticateToken, transactions_controller_1.createTransaction);
+// POST /api/transactions/ledger - Create a new transaction using ledger system
+router.post('/ledger', auth_1.authenticateToken, transactions_controller_1.createTransactionWithLedger);
 // PUT /api/transactions/:id/status - Update transaction status
 router.put('/:id/status', auth_1.authenticateToken, transactions_controller_1.updateTransactionStatus);
+// GET /api/transactions/account/:accountId/notifications - Get account notifications
+router.get('/account/:accountId/notifications', auth_1.authenticateToken, transactions_controller_1.getAccountNotifications);
+// GET /api/transactions/account/:accountId/withdrawal-check - Check withdrawal availability
+router.get('/account/:accountId/withdrawal-check', auth_1.authenticateToken, transactions_controller_1.checkWithdrawalAvailability);
+// GET /api/transactions/account/:accountId/enhanced-balance - Get enhanced account balance information
+router.get('/account/:accountId/enhanced-balance', auth_1.authenticateToken, transactions_controller_1.getEnhancedAccountBalance);
+// GET /api/transactions/customer/:customerId/guarantees - Get customer guarantee information
+router.get('/customer/:customerId/guarantees', auth_1.authenticateToken, transactions_controller_1.getCustomerGuaranteeInfo);
 exports.default = router;

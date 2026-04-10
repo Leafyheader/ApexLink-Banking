@@ -6,6 +6,49 @@ import { generateCustomerId } from '../utils/idGenerator';
 
 const prisma = new PrismaClient();
 
+const formatCustomerResponse = (customer: any) => ({
+  id: customer.id,
+  customerNumber: customer.customerNumber,
+  name: customer.name,
+  isHidden: customer.isHidden,
+  hiddenAt: customer.hiddenAt?.toISOString(),
+  email: customer.email || '',
+  phone: customer.phone || customer.contactNumber || '',
+  address: customer.address || customer.residentialAddress || '',
+  kycStatus: customer.kycStatus.toLowerCase(),
+  dateJoined: customer.dateJoined.toISOString(),
+  accounts: customer.accounts || [],
+  firstName: customer.firstName,
+  surname: customer.surname,
+  otherName: customer.otherName,
+  gender: customer.gender,
+  dateOfBirth: customer.dateOfBirth?.toISOString(),
+  occupation: customer.occupation,
+  workplace: customer.workplace,
+  maritalStatus: customer.maritalStatus,
+  residentialAddress: customer.residentialAddress,
+  postalAddress: customer.postalAddress,
+  contactNumber: customer.contactNumber,
+  city: customer.city,
+  beneficiaryName: customer.beneficiaryName,
+  beneficiaryContact: customer.beneficiaryContact,
+  beneficiaryRelation: customer.beneficiaryRelation,
+  beneficiaryPercentage: customer.beneficiaryPercentage,
+  beneficiary2Name: customer.beneficiary2Name,
+  beneficiary2Contact: customer.beneficiary2Contact,
+  beneficiary2Relation: customer.beneficiary2Relation,
+  beneficiary2Percentage: customer.beneficiary2Percentage,
+  beneficiary3Name: customer.beneficiary3Name,
+  beneficiary3Contact: customer.beneficiary3Contact,
+  beneficiary3Relation: customer.beneficiary3Relation,
+  beneficiary3Percentage: customer.beneficiary3Percentage,
+  identificationType: customer.identificationType,
+  identificationNumber: customer.identificationNumber,
+  photo: customer.photo,
+  signature: customer.signature,
+  createdBy: customer.createdBy
+});
+
 // Get all customers with pagination and search
 export const getCustomers = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
@@ -13,12 +56,24 @@ export const getCustomers = async (req: AuthRequest, res: Response): Promise<voi
       page = '1', 
       limit = '10', 
       search = '',
-      kycStatus 
-    } = req.query;    const pageNum = parseInt(page as string);    const limitNum = parseInt(limit as string);
+      kycStatus,
+      includeHidden = 'false',
+      hiddenOnly = 'false'
+    } = req.query;
+
+    const pageNum = parseInt(page as string);
+    // Allow large limit values for export functionality, but cap at 100000 for safety
+    const limitNum = Math.min(parseInt(limit as string), 100000);
     const offset = (pageNum - 1) * limitNum;
 
     // Build where clause for search and filtering
     const whereClause: any = {};
+
+    if (hiddenOnly === 'true') {
+      whereClause.isHidden = true;
+    } else if (includeHidden !== 'true') {
+      whereClause.isHidden = false;
+    }
     
     if (search && typeof search === 'string' && search.trim()) {
       whereClause.OR = [
@@ -62,46 +117,9 @@ export const getCustomers = async (req: AuthRequest, res: Response): Promise<voi
       }),
       prisma.customer.count({ where: whereClause })
     ]);    // Format the response to match frontend expectations
-    const formattedCustomers = customers.map((customer: any) => ({
-      id: customer.id,
-      name: customer.name,
-      email: customer.email || '',
-      phone: customer.phone || customer.contactNumber || '',
-      address: customer.address || customer.residentialAddress || '',
-      kycStatus: customer.kycStatus.toLowerCase(),
-      dateJoined: customer.dateJoined.toISOString(),
-      accounts: customer.accounts,
-      // Extended fields
-      firstName: customer.firstName,
-      surname: customer.surname,
-      otherName: customer.otherName,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth?.toISOString(),
-      occupation: customer.occupation,
-      workplace: customer.workplace,
-      maritalStatus: customer.maritalStatus,
-      residentialAddress: customer.residentialAddress,
-      postalAddress: customer.postalAddress,
-      contactNumber: customer.contactNumber,
-      city: customer.city,
-      beneficiaryName: customer.beneficiaryName,
-      beneficiaryContact: customer.beneficiaryContact,
-      beneficiaryRelation: customer.beneficiaryRelation,
-      beneficiaryPercentage: customer.beneficiaryPercentage,
-      beneficiary2Name: customer.beneficiary2Name,
-      beneficiary2Contact: customer.beneficiary2Contact,
-      beneficiary2Relation: customer.beneficiary2Relation,
-      beneficiary2Percentage: customer.beneficiary2Percentage,
-      beneficiary3Name: customer.beneficiary3Name,
-      beneficiary3Contact: customer.beneficiary3Contact,
-      beneficiary3Relation: customer.beneficiary3Relation,
-      beneficiary3Percentage: customer.beneficiary3Percentage,
-      identificationType: customer.identificationType,
-      identificationNumber: customer.identificationNumber,
-      photo: customer.photo,
-      signature: customer.signature,
-      createdBy: customer.createdBy
-    }));    res.json({
+    const formattedCustomers = customers.map(formatCustomerResponse);
+
+    res.json({
       customers: formattedCustomers,
       pagination: {
         page: pageNum,
@@ -112,6 +130,94 @@ export const getCustomers = async (req: AuthRequest, res: Response): Promise<voi
     });  } catch (error) {
     console.error('Error fetching customers:', error);
     res.status(500).json({ error: 'Failed to fetch customers' });
+  }
+};
+
+// Export all customers (optimized for CSV export)
+export const exportCustomers = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { search = '', kycStatus, includeHidden = 'false', hiddenOnly = 'false' } = req.query;
+
+    // Build where clause for search and filtering
+    const whereClause: any = {};
+
+    if (hiddenOnly === 'true') {
+      whereClause.isHidden = true;
+    } else if (includeHidden !== 'true') {
+      whereClause.isHidden = false;
+    }
+    
+    if (search && typeof search === 'string' && search.trim()) {
+      whereClause.OR = [
+        { name: { contains: search } },
+        { email: { contains: search } },
+        { phone: { contains: search } },
+        { contactNumber: { contains: search } }
+      ];
+    }
+
+    if (kycStatus) {
+      whereClause.kycStatus = kycStatus;
+    }
+
+    // Fetch all customers without pagination, but with minimal includes for performance
+    const customers = await prisma.customer.findMany({
+      where: whereClause,
+      select: {
+        id: true,
+        customerNumber: true,
+        name: true,
+        isHidden: true,
+        hiddenAt: true,
+        email: true,
+        phone: true,
+        address: true,
+        kycStatus: true,
+        dateJoined: true,
+        firstName: true,
+        surname: true,
+        otherName: true,
+        gender: true,
+        dateOfBirth: true,
+        occupation: true,
+        workplace: true,
+        maritalStatus: true,
+        residentialAddress: true,
+        postalAddress: true,
+        contactNumber: true,
+        city: true,
+        beneficiaryName: true,
+        beneficiaryContact: true,
+        beneficiaryRelation: true,
+        beneficiaryPercentage: true,
+        beneficiary2Name: true,
+        beneficiary2Contact: true,
+        beneficiary2Relation: true,
+        beneficiary2Percentage: true,
+        beneficiary3Name: true,
+        beneficiary3Contact: true,
+        beneficiary3Relation: true,
+        beneficiary3Percentage: true,
+        identificationType: true,
+        identificationNumber: true,
+        photo: true,
+        signature: true,
+      },
+      orderBy: {
+        createdAt: 'desc'
+      }
+    });
+
+    // Format the response
+    const formattedCustomers = customers.map(formatCustomerResponse);
+
+    res.json({
+      customers: formattedCustomers,
+      total: formattedCustomers.length
+    });
+  } catch (error) {
+    console.error('Error exporting customers:', error);
+    res.status(500).json({ error: 'Failed to export customers' });
   }
 };
 
@@ -147,46 +253,7 @@ export const getCustomerById = async (req: AuthRequest, res: Response): Promise<
     }
 
     // Format the response
-    const formattedCustomer = {
-      id: customer.id,
-      name: customer.name,
-      email: customer.email || '',
-      phone: customer.phone || customer.contactNumber || '',
-      address: customer.address || customer.residentialAddress || '',
-      kycStatus: customer.kycStatus.toLowerCase(),
-      dateJoined: customer.dateJoined.toISOString(),
-      accounts: customer.accounts,
-      // Extended fields
-      firstName: customer.firstName,
-      surname: customer.surname,
-      otherName: customer.otherName,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth?.toISOString(),
-      occupation: customer.occupation,
-      workplace: customer.workplace,
-      maritalStatus: customer.maritalStatus,
-      residentialAddress: customer.residentialAddress,
-      postalAddress: customer.postalAddress,
-      contactNumber: customer.contactNumber,
-      city: customer.city,
-      beneficiaryName: customer.beneficiaryName,
-      beneficiaryContact: customer.beneficiaryContact,
-      beneficiaryRelation: customer.beneficiaryRelation,
-      beneficiaryPercentage: customer.beneficiaryPercentage,
-      beneficiary2Name: customer.beneficiary2Name,
-      beneficiary2Contact: customer.beneficiary2Contact,
-      beneficiary2Relation: customer.beneficiary2Relation,
-      beneficiary2Percentage: customer.beneficiary2Percentage,
-      beneficiary3Name: customer.beneficiary3Name,
-      beneficiary3Contact: customer.beneficiary3Contact,
-      beneficiary3Relation: customer.beneficiary3Relation,
-      beneficiary3Percentage: customer.beneficiary3Percentage,
-      identificationType: customer.identificationType,
-      identificationNumber: customer.identificationNumber,
-      photo: customer.photo,
-      signature: customer.signature,
-      createdBy: customer.createdBy
-    };
+    const formattedCustomer = formatCustomerResponse(customer);
 
     res.json(formattedCustomer);
   } catch (error) {
@@ -309,47 +376,7 @@ export const createCustomer = async (req: AuthRequest, res: Response): Promise<v
       res.status(500).json({ error: 'Failed to fetch created customer' });
       return;
     }    // Format the response
-    const formattedCustomer = {
-      id: customerWithRelations.id,
-      customerNumber: (customerWithRelations as any).customerNumber,  // Temporary type assertion
-      name: customerWithRelations.name,
-      email: customerWithRelations.email || '',
-      phone: customerWithRelations.phone || customerWithRelations.contactNumber || '',
-      address: customerWithRelations.address || customerWithRelations.residentialAddress || '',
-      kycStatus: customerWithRelations.kycStatus.toLowerCase(),
-      dateJoined: customerWithRelations.dateJoined.toISOString(),
-      accounts: customerWithRelations.accounts,
-      // Include all extended fields
-      firstName: customerWithRelations.firstName,
-      surname: customerWithRelations.surname,
-      otherName: customerWithRelations.otherName,
-      gender: customerWithRelations.gender,
-      dateOfBirth: customerWithRelations.dateOfBirth?.toISOString(),
-      occupation: customerWithRelations.occupation,
-      workplace: customerWithRelations.workplace,
-      maritalStatus: customerWithRelations.maritalStatus,
-      residentialAddress: customerWithRelations.residentialAddress,
-      postalAddress: customerWithRelations.postalAddress,
-      contactNumber: customerWithRelations.contactNumber,
-      city: customerWithRelations.city,
-      beneficiaryName: customerWithRelations.beneficiaryName,
-      beneficiaryContact: customerWithRelations.beneficiaryContact,
-      beneficiaryRelation: customerWithRelations.beneficiaryRelation,
-      beneficiaryPercentage: customerWithRelations.beneficiaryPercentage,
-      beneficiary2Name: customerWithRelations.beneficiary2Name,
-      beneficiary2Contact: customerWithRelations.beneficiary2Contact,
-      beneficiary2Relation: customerWithRelations.beneficiary2Relation,
-      beneficiary2Percentage: customerWithRelations.beneficiary2Percentage,
-      beneficiary3Name: customerWithRelations.beneficiary3Name,
-      beneficiary3Contact: customerWithRelations.beneficiary3Contact,
-      beneficiary3Relation: customerWithRelations.beneficiary3Relation,
-      beneficiary3Percentage: customerWithRelations.beneficiary3Percentage,
-      identificationType: customerWithRelations.identificationType,
-      identificationNumber: customerWithRelations.identificationNumber,
-      photo: customerWithRelations.photo,
-      signature: customerWithRelations.signature,
-      createdBy: customerWithRelations.createdBy
-    };
+    const formattedCustomer = formatCustomerResponse(customerWithRelations);
 
     res.status(201).json(formattedCustomer);} catch (error) {
     console.error('Error creating customer:', error);
@@ -429,46 +456,7 @@ export const updateCustomer = async (req: AuthRequest, res: Response): Promise<v
     });
 
     // Format the response
-    const formattedCustomer = {
-      id: customer.id,
-      name: customer.name,
-      email: customer.email || '',
-      phone: customer.phone || customer.contactNumber || '',
-      address: customer.address || customer.residentialAddress || '',
-      kycStatus: customer.kycStatus.toLowerCase(),
-      dateJoined: customer.dateJoined.toISOString(),
-      accounts: customer.accounts,
-      // Include all extended fields
-      firstName: customer.firstName,
-      surname: customer.surname,
-      otherName: customer.otherName,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth?.toISOString(),
-      occupation: customer.occupation,
-      workplace: customer.workplace,
-      maritalStatus: customer.maritalStatus,
-      residentialAddress: customer.residentialAddress,
-      postalAddress: customer.postalAddress,
-      contactNumber: customer.contactNumber,
-      city: customer.city,
-      beneficiaryName: customer.beneficiaryName,
-      beneficiaryContact: customer.beneficiaryContact,
-      beneficiaryRelation: customer.beneficiaryRelation,
-      beneficiaryPercentage: customer.beneficiaryPercentage,
-      beneficiary2Name: customer.beneficiary2Name,
-      beneficiary2Contact: customer.beneficiary2Contact,
-      beneficiary2Relation: customer.beneficiary2Relation,
-      beneficiary2Percentage: customer.beneficiary2Percentage,
-      beneficiary3Name: customer.beneficiary3Name,
-      beneficiary3Contact: customer.beneficiary3Contact,
-      beneficiary3Relation: customer.beneficiary3Relation,
-      beneficiary3Percentage: customer.beneficiary3Percentage,
-      identificationType: customer.identificationType,
-      identificationNumber: customer.identificationNumber,
-      photo: customer.photo,
-      signature: customer.signature,
-      createdBy: customer.createdBy
-    };
+    const formattedCustomer = formatCustomerResponse(customer);
 
     res.json(formattedCustomer);  } catch (error) {
     console.error('Error updating customer:', error);
@@ -547,46 +535,7 @@ export const updateKYCStatus = async (req: AuthRequest, res: Response): Promise<
     });
 
     // Format the response
-    const formattedCustomer = {
-      id: customer.id,
-      name: customer.name,
-      email: customer.email || '',
-      phone: customer.phone || customer.contactNumber || '',
-      address: customer.address || customer.residentialAddress || '',
-      kycStatus: customer.kycStatus.toLowerCase(),
-      dateJoined: customer.dateJoined.toISOString(),
-      accounts: customer.accounts,
-      // Include extended fields
-      firstName: customer.firstName,
-      surname: customer.surname,
-      otherName: customer.otherName,
-      gender: customer.gender,
-      dateOfBirth: customer.dateOfBirth?.toISOString(),
-      occupation: customer.occupation,
-      workplace: customer.workplace,
-      maritalStatus: customer.maritalStatus,
-      residentialAddress: customer.residentialAddress,
-      postalAddress: customer.postalAddress,
-      contactNumber: customer.contactNumber,
-      city: customer.city,
-      beneficiaryName: customer.beneficiaryName,
-      beneficiaryContact: customer.beneficiaryContact,
-      beneficiaryRelation: customer.beneficiaryRelation,
-      beneficiaryPercentage: customer.beneficiaryPercentage,
-      beneficiary2Name: customer.beneficiary2Name,
-      beneficiary2Contact: customer.beneficiary2Contact,
-      beneficiary2Relation: customer.beneficiary2Relation,
-      beneficiary2Percentage: customer.beneficiary2Percentage,
-      beneficiary3Name: customer.beneficiary3Name,
-      beneficiary3Contact: customer.beneficiary3Contact,
-      beneficiary3Relation: customer.beneficiary3Relation,
-      beneficiary3Percentage: customer.beneficiary3Percentage,
-      identificationType: customer.identificationType,
-      identificationNumber: customer.identificationNumber,
-      photo: customer.photo,
-      signature: customer.signature,
-      createdBy: customer.createdBy
-    };
+    const formattedCustomer = formatCustomerResponse(customer);
 
     res.json(formattedCustomer);
   } catch (error) {    console.error('Error updating KYC status:', error);
@@ -595,5 +544,63 @@ export const updateKYCStatus = async (req: AuthRequest, res: Response): Promise<
       return;
     }
     res.status(500).json({ error: 'Failed to update KYC status' });
+  }
+};
+
+export const hideCustomersWithoutAccounts = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const result = await prisma.customer.updateMany({
+      where: {
+        isHidden: false,
+        accounts: {
+          none: {}
+        }
+      },
+      data: {
+        isHidden: true,
+        hiddenAt: new Date()
+      }
+    });
+
+    res.json({
+      message: 'Customers without accounts hidden successfully',
+      hiddenCount: result.count
+    });
+  } catch (error) {
+    console.error('Error hiding customers without accounts:', error);
+    res.status(500).json({ error: 'Failed to hide customers without accounts' });
+  }
+};
+
+export const unhideCustomer = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const customer = await prisma.customer.update({
+      where: { id },
+      data: {
+        isHidden: false,
+        hiddenAt: null
+      },
+      include: {
+        accounts: true,
+        createdBy: {
+          select: {
+            id: true,
+            name: true,
+            username: true
+          }
+        }
+      }
+    });
+
+    res.json(formatCustomerResponse(customer));
+  } catch (error) {
+    console.error('Error unhiding customer:', error);
+    if (error instanceof Error && error.message.includes('Record to update not found')) {
+      res.status(404).json({ error: 'Customer not found' });
+      return;
+    }
+    res.status(500).json({ error: 'Failed to unhide customer' });
   }
 };

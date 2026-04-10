@@ -23,6 +23,17 @@ const formatDate = (date: Date, format: string) => {
   return date.toISOString();
 };
 
+const safeDivide = (numerator: number, denominator: number): number => {
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator) || denominator === 0) {
+    return 0;
+  }
+  return numerator / denominator;
+};
+
+const safePercent = (numerator: number, denominator: number, digits = 1): string => {
+  return `${(safeDivide(numerator, denominator) * 100).toFixed(digits)}%`;
+};
+
 // Types for reports
 interface ReportFilter {
   dateFrom: string;
@@ -87,6 +98,15 @@ interface CustomerMetrics {
     totalBalance: number;
     accountCount: number;
   }>;
+}
+
+interface RegulatoryReportItem {
+  id: string;
+  title: string;
+  metricLabel: string;
+  metricValue: string;
+  status: 'healthy' | 'watch' | 'risk';
+  notes: string;
 }
 
 // Shared Print Styles Component
@@ -313,6 +333,7 @@ const FinancialSummaryPrintLayout: React.FC<{
   filters: ReportFilter;
   formatCurrency: (amount: number) => string;
 }> = ({ financialSummary, filters, formatCurrency }) => {
+  const income = financialSummary.bankIncome;
   const currentDate = new Date().toLocaleDateString('en-US', {
     year: 'numeric',
     month: 'long',
@@ -452,14 +473,14 @@ const FinancialSummaryPrintLayout: React.FC<{
               <td>Operating Expenses</td>
               <td className="text-right">{formatCurrency(financialSummary.operatingExpenses)}</td>
               <td className="text-right">
-                {((financialSummary.operatingExpenses / financialSummary.bankIncome) * 100).toFixed(1)}%
+                {safePercent(financialSummary.operatingExpenses, income)}
               </td>
             </tr>
             <tr style={{ borderTop: '2px solid #000', fontWeight: 'bold' }}>
               <td>Net Profit</td>
               <td className="text-right">{formatCurrency(financialSummary.netProfit)}</td>
               <td className="text-right">
-                {((financialSummary.netProfit / financialSummary.bankIncome) * 100).toFixed(1)}%
+                {safePercent(financialSummary.netProfit, income)}
               </td>
             </tr>
           </tbody>
@@ -473,20 +494,20 @@ const FinancialSummaryPrintLayout: React.FC<{
           <div className="print-metric">
             <div className="print-metric-label">Profit Margin</div>
             <div className="print-metric-value">
-              {((financialSummary.netProfit / financialSummary.bankIncome) * 100).toFixed(1)}%
+              {safePercent(financialSummary.netProfit, income)}
             </div>
           </div>
           <div className="print-metric">
             <div className="print-metric-label">Expense Ratio</div>
             <div className="print-metric-value">
-              {((financialSummary.operatingExpenses / financialSummary.bankIncome) * 100).toFixed(1)}%
+              {safePercent(financialSummary.operatingExpenses, income)}
             </div>
           </div>
           <div className="print-metric">
             <div className="print-metric-label">Loan Recovery Rate</div>
             <div className="print-metric-value">
               {financialSummary.totalLoans > 0 
-                ? ((financialSummary.loanRepayments / financialSummary.totalLoans) * 100).toFixed(1)
+                ? (safeDivide(financialSummary.loanRepayments, financialSummary.totalLoans) * 100).toFixed(1)
                 : '0.0'
               }%
             </div>
@@ -529,7 +550,7 @@ const AccountAnalyticsPrintLayout: React.FC<{
 
   const totalAccounts = accountAnalytics.reduce((sum, acc) => sum + acc.count, 0);
   const totalBalance = accountAnalytics.reduce((sum, acc) => sum + acc.totalBalance, 0);
-  const avgBalance = totalBalance / totalAccounts;
+  const avgBalance = safeDivide(totalBalance, totalAccounts);
 
   return (
     <div className="print-layout" id="account-analytics-print" style={{ 
@@ -601,7 +622,7 @@ const AccountAnalyticsPrintLayout: React.FC<{
                 <td className="text-right">{formatCurrency(account.totalBalance)}</td>
                 <td className="text-right">{formatCurrency(account.averageBalance)}</td>
                 <td className="text-right">{formatPercentage(account.growthRate)}</td>
-                <td className="text-right">{((account.totalBalance / totalBalance) * 100).toFixed(1)}%</td>
+                <td className="text-right">{safePercent(account.totalBalance, totalBalance)}</td>
               </tr>
             ))}
           </tbody>
@@ -733,13 +754,13 @@ const LoanPortfolioPrintLayout: React.FC<{
             <tr>
               <td>Total Repaid</td>
               <td className="text-right">{formatCurrency(loanPortfolio.totalRepaid)}</td>
-              <td className="text-right">{((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(loanPortfolio.totalRepaid, loanPortfolio.totalDisbursed)}</td>
               <td>Amount repaid by borrowers</td>
             </tr>
             <tr>
               <td>Outstanding Amount</td>
               <td className="text-right">{formatCurrency(loanPortfolio.outstandingAmount)}</td>
-              <td className="text-right">{((loanPortfolio.outstandingAmount / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(loanPortfolio.outstandingAmount, loanPortfolio.totalDisbursed)}</td>
               <td>Amount still owed by borrowers</td>
             </tr>
           </tbody>
@@ -787,19 +808,19 @@ const LoanPortfolioPrintLayout: React.FC<{
             <tr>
               <td style={{ fontWeight: 'bold', color: '#22c55e' }}>Active</td>
               <td className="text-right">{loanPortfolio.activeLoans.toLocaleString()}</td>
-              <td className="text-right">{((loanPortfolio.activeLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(loanPortfolio.activeLoans, loanPortfolio.totalLoans)}</td>
               <td>Loans currently being repaid</td>
             </tr>
             <tr>
               <td style={{ fontWeight: 'bold', color: '#3b82f6' }}>Completed</td>
               <td className="text-right">{loanPortfolio.completedLoans.toLocaleString()}</td>
-              <td className="text-right">{((loanPortfolio.completedLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(loanPortfolio.completedLoans, loanPortfolio.totalLoans)}</td>
               <td>Loans fully repaid</td>
             </tr>
             <tr>
               <td style={{ fontWeight: 'bold', color: '#ef4444' }}>Defaulted</td>
               <td className="text-right">{loanPortfolio.defaultedLoans.toLocaleString()}</td>
-              <td className="text-right">{((loanPortfolio.defaultedLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(loanPortfolio.defaultedLoans, loanPortfolio.totalLoans)}</td>
               <td>Loans in default status</td>
             </tr>
           </tbody>
@@ -811,11 +832,11 @@ const LoanPortfolioPrintLayout: React.FC<{
         <div className="print-section-title">Key Performance Indicators</div>
         <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
           <li>Total loan portfolio value: {formatCurrency(loanPortfolio.totalDisbursed)}</li>
-          <li>Average loan size: {formatCurrency(loanPortfolio.totalDisbursed / loanPortfolio.totalLoans)}</li>
-          <li>Collection efficiency: {((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100).toFixed(1)}%</li>
+          <li>Average loan size: {formatCurrency(safeDivide(loanPortfolio.totalDisbursed, loanPortfolio.totalLoans))}</li>
+          <li>Collection efficiency: {safePercent(loanPortfolio.totalRepaid, loanPortfolio.totalDisbursed)}</li>
           <li>Risk concentration: Portfolio at Risk of {formatPercentage(loanPortfolio.portfolioAtRisk)}</li>
-          <li>Active loan ratio: {((loanPortfolio.activeLoans / loanPortfolio.totalLoans) * 100).toFixed(1)}% of total loans</li>
-          <li>Outstanding balance represents {((loanPortfolio.outstandingAmount / loanPortfolio.totalDisbursed) * 100).toFixed(1)}% of total disbursements</li>
+          <li>Active loan ratio: {safePercent(loanPortfolio.activeLoans, loanPortfolio.totalLoans)} of total loans</li>
+          <li>Outstanding balance represents {safePercent(loanPortfolio.outstandingAmount, loanPortfolio.totalDisbursed)} of total disbursements</li>
         </ul>
       </div>
 
@@ -853,12 +874,12 @@ const TransactionSummaryPrintLayout: React.FC<{
   );
 
   const avgDaily = {
-    deposits: totals.deposits / transactionSummary.length,
-    withdrawals: totals.withdrawals / transactionSummary.length,
-    transfers: totals.transfers / transactionSummary.length,
-    loanRepayments: totals.loanRepayments / transactionSummary.length,
-    fees: totals.fees / transactionSummary.length,
-    totalVolume: totals.totalVolume / transactionSummary.length,
+    deposits: safeDivide(totals.deposits, transactionSummary.length),
+    withdrawals: safeDivide(totals.withdrawals, transactionSummary.length),
+    transfers: safeDivide(totals.transfers, transactionSummary.length),
+    loanRepayments: safeDivide(totals.loanRepayments, transactionSummary.length),
+    fees: safeDivide(totals.fees, transactionSummary.length),
+    totalVolume: safeDivide(totals.totalVolume, transactionSummary.length),
   };
 
   return (
@@ -946,31 +967,31 @@ const TransactionSummaryPrintLayout: React.FC<{
               <td>Deposits</td>
               <td className="text-right">{formatCurrency(totals.deposits)}</td>
               <td className="text-right">{formatCurrency(avgDaily.deposits)}</td>
-              <td className="text-right">{((totals.deposits / totals.totalVolume) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(totals.deposits, totals.totalVolume)}</td>
             </tr>
             <tr>
               <td>Withdrawals</td>
               <td className="text-right">{formatCurrency(totals.withdrawals)}</td>
               <td className="text-right">{formatCurrency(avgDaily.withdrawals)}</td>
-              <td className="text-right">{((totals.withdrawals / totals.totalVolume) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(totals.withdrawals, totals.totalVolume)}</td>
             </tr>
             <tr>
               <td>Transfers</td>
               <td className="text-right">{formatCurrency(totals.transfers)}</td>
               <td className="text-right">{formatCurrency(avgDaily.transfers)}</td>
-              <td className="text-right">{((totals.transfers / totals.totalVolume) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(totals.transfers, totals.totalVolume)}</td>
             </tr>
             <tr>
               <td>Loan Repayments</td>
               <td className="text-right">{formatCurrency(totals.loanRepayments)}</td>
               <td className="text-right">{formatCurrency(avgDaily.loanRepayments)}</td>
-              <td className="text-right">{((totals.loanRepayments / totals.totalVolume) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(totals.loanRepayments, totals.totalVolume)}</td>
             </tr>
             <tr>
               <td>Fees</td>
               <td className="text-right">{formatCurrency(totals.fees)}</td>
               <td className="text-right">{formatCurrency(avgDaily.fees)}</td>
-              <td className="text-right">{((totals.fees / totals.totalVolume) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(totals.fees, totals.totalVolume)}</td>
             </tr>
             <tr style={{ borderTop: '2px solid #000', fontWeight: 'bold' }}>
               <td>Total Volume</td>
@@ -1020,9 +1041,9 @@ const TransactionSummaryPrintLayout: React.FC<{
           <li>Total transaction volume for the period: {formatCurrency(totals.totalVolume)}</li>
           <li>Average daily transaction volume: {formatCurrency(avgDaily.totalVolume)}</li>
           <li>Net cash flow (deposits - withdrawals): {formatCurrency(totals.deposits - totals.withdrawals)}</li>
-          <li>Deposit to withdrawal ratio: {(totals.deposits / totals.withdrawals).toFixed(2)}:1</li>
-          <li>Fee income represents {((totals.fees / totals.totalVolume) * 100).toFixed(2)}% of total transaction volume</li>
-          <li>Loan repayments contributed {((totals.loanRepayments / totals.totalVolume) * 100).toFixed(1)}% to total volume</li>
+          <li>Deposit to withdrawal ratio: {safeDivide(totals.deposits, totals.withdrawals).toFixed(2)}:1</li>
+          <li>Fee income represents {safePercent(totals.fees, totals.totalVolume, 2)} of total transaction volume</li>
+          <li>Loan repayments contributed {safePercent(totals.loanRepayments, totals.totalVolume)} to total volume</li>
         </ul>
       </div>
 
@@ -1118,13 +1139,13 @@ const CustomerMetricsPrintLayout: React.FC<{
             <tr>
               <td>Active Customer Rate</td>
               <td className="text-right">{customerMetrics.activeCustomers.toLocaleString()}</td>
-              <td className="text-right">{((customerMetrics.activeCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(customerMetrics.activeCustomers, customerMetrics.totalCustomers)}</td>
               <td>Customers with recent activity</td>
             </tr>
             <tr>
               <td>Customer Growth</td>
               <td className="text-right">{customerMetrics.newCustomers.toLocaleString()}</td>
-              <td className="text-right">{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
+              <td className="text-right">{safePercent(customerMetrics.newCustomers, customerMetrics.totalCustomers)}</td>
               <td>New customers this period</td>
             </tr>
             <tr>
@@ -1163,7 +1184,7 @@ const CustomerMetricsPrintLayout: React.FC<{
                 <td>{customer.name}</td>
                 <td className="text-right" style={{ fontWeight: 'bold' }}>{formatCurrency(customer.totalBalance)}</td>
                 <td className="text-right">{customer.accountCount}</td>
-                <td className="text-right">{formatCurrency(customer.totalBalance / customer.accountCount)}</td>
+                <td className="text-right">{formatCurrency(safeDivide(customer.totalBalance, customer.accountCount))}</td>
               </tr>
             ))}
           </tbody>
@@ -1189,7 +1210,7 @@ const CustomerMetricsPrintLayout: React.FC<{
           <div className="print-metric">
             <div className="print-metric-label">Avg HVC Balance</div>
             <div className="print-metric-value print-metric-positive">
-              {formatCurrency(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0) / customerMetrics.topCustomersByBalance.length)}
+              {formatCurrency(safeDivide(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0), customerMetrics.topCustomersByBalance.length))}
             </div>
           </div>
         </div>
@@ -1199,12 +1220,12 @@ const CustomerMetricsPrintLayout: React.FC<{
       <div className="print-section">
         <div className="print-section-title">Customer KPIs & Insights</div>
         <ul style={{ fontSize: '11px', lineHeight: '1.5', paddingLeft: '20px' }}>
-          <li>Customer base composition: {customerMetrics.totalCustomers.toLocaleString()} total customers with {((customerMetrics.activeCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}% active</li>
+          <li>Customer base composition: {customerMetrics.totalCustomers.toLocaleString()} total customers with {safePercent(customerMetrics.activeCustomers, customerMetrics.totalCustomers)} active</li>
           <li>Growth rate: {customerMetrics.newCustomers} new customers added during reporting period</li>
           <li>Cross-selling success: Average of {customerMetrics.averageAccountsPerCustomer.toFixed(2)} accounts per customer</li>
           <li>Customer loyalty: {formatPercentage(customerMetrics.customerRetentionRate)} retention rate indicates strong customer satisfaction</li>
           <li>High-value segment: Top {customerMetrics.topCustomersByBalance.length} customers hold {formatCurrency(customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0))}</li>
-          <li>Customer concentration: Top customer represents {customerMetrics.topCustomersByBalance.length > 0 ? ((customerMetrics.topCustomersByBalance[0].totalBalance / customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0)) * 100).toFixed(1) : '0'}% of top customer balances</li>
+          <li>Customer concentration: Top customer represents {customerMetrics.topCustomersByBalance.length > 0 ? safePercent(customerMetrics.topCustomersByBalance[0].totalBalance, customerMetrics.topCustomersByBalance.reduce((sum, c) => sum + c.totalBalance, 0)) : '0.0%'} of top customer balances</li>
         </ul>
       </div>
 
@@ -1222,8 +1243,8 @@ const CustomerMetricsPrintLayout: React.FC<{
           <tbody>
             <tr>
               <td>Customer Growth</td>
-              <td className="text-right">{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100).toFixed(1)}%</td>
-              <td>{((customerMetrics.newCustomers / customerMetrics.totalCustomers) * 100) > 5 ? 'Strong Growth' : 'Moderate Growth'}</td>
+              <td className="text-right">{safePercent(customerMetrics.newCustomers, customerMetrics.totalCustomers)}</td>
+              <td>{(safeDivide(customerMetrics.newCustomers, customerMetrics.totalCustomers) * 100) > 5 ? 'Strong Growth' : 'Moderate Growth'}</td>
             </tr>
             <tr>
               <td>Customer Retention</td>
@@ -1246,6 +1267,72 @@ const CustomerMetricsPrintLayout: React.FC<{
   );
 };
 
+const RegulatoryReportsPrintLayout: React.FC<{
+  regulatoryReports: RegulatoryReportItem[];
+  filters: ReportFilter;
+}> = ({ regulatoryReports, filters }) => {
+  const currentDate = new Date().toLocaleDateString('en-US', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  return (
+    <div className="print-layout" id="regulatory-reports-print" style={{
+      display: 'none',
+      overflow: 'visible',
+      height: 'auto',
+      width: '100%',
+      margin: 0,
+      padding: 0,
+    }}>
+      <PrintStyles />
+
+      <div className="print-header">
+        <div className="print-title">Christ The King Support Scheme</div>
+        <div className="print-subtitle">Regulatory Snapshot Report</div>
+        <div className="print-date-range">
+          Period: {formatDate(new Date(filters.dateFrom), 'MMM dd, yyyy')} - {formatDate(new Date(filters.dateTo), 'MMM dd, yyyy')}
+        </div>
+        <div style={{ fontSize: '10px', marginTop: '10px' }}>
+          Generated on: {currentDate}
+        </div>
+      </div>
+
+      <div className="print-section">
+        <div className="print-section-title">Regulatory Indicators</div>
+        <table className="print-table">
+          <thead>
+            <tr>
+              <th>Indicator</th>
+              <th>Metric</th>
+              <th className="text-right">Value</th>
+              <th>Status</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {regulatoryReports.map((item) => (
+              <tr key={item.id}>
+                <td style={{ fontWeight: 'bold' }}>{item.title}</td>
+                <td>{item.metricLabel}</td>
+                <td className="text-right">{item.metricValue}</td>
+                <td>{item.status.toUpperCase()}</td>
+                <td>{item.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="print-footer">
+        <div>Christ The King Support Scheme - Regulatory Snapshot Report</div>
+        <div>Confidential - For Internal Use Only</div>
+      </div>
+    </div>
+  );
+};
+
 export default function Reports() {
   const [filters, setFilters] = useState<ReportFilter>({    dateFrom: formatDate(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000), 'yyyy-MM-dd'),
     dateTo: formatDate(new Date(), 'yyyy-MM-dd'),
@@ -1259,7 +1346,119 @@ export default function Reports() {
   const [accountAnalytics, setAccountAnalytics] = useState<AccountAnalytics[]>([]);
   const [loanPortfolio, setLoanPortfolio] = useState<LoanPortfolio | null>(null);
   const [transactionSummary, setTransactionSummary] = useState<TransactionSummary[]>([]);
-  const [customerMetrics, setCustomerMetrics] = useState<CustomerMetrics | null>(null);  const generateReport = useCallback(async () => {
+  const [regulatoryReports, setRegulatoryReports] = useState<RegulatoryReportItem[]>([]);
+  const [customerMetrics, setCustomerMetrics] = useState<CustomerMetrics | null>(null);
+
+  const buildRegulatorySnapshot = useCallback(async () => {
+    const dateParams = {
+      dateFrom: filters.dateFrom,
+      dateTo: filters.dateTo,
+    };
+
+    const [financialData, loanData, transactionData, customerData] = await Promise.all([
+      reportsApi.getFinancialSummary(dateParams),
+      reportsApi.getLoanPortfolio(dateParams),
+      reportsApi.getTransactionSummary(dateParams),
+      reportsApi.getCustomerMetrics(dateParams),
+    ]);
+
+    const transactions = Array.isArray(transactionData) ? transactionData : [];
+    const totalVolume = transactions.reduce((sum, row) => sum + (row.totalVolume || 0), 0);
+    const totalWithdrawals = transactions.reduce((sum, row) => sum + (row.withdrawals || 0), 0);
+
+    const capitalAdequacyProxy = safeDivide(financialData.bankIncome + financialData.netProfit, financialData.totalLoans) * 100;
+    const liquidityCoverageProxy = safeDivide(financialData.totalDeposits, Math.max(financialData.totalWithdrawals, 1)) * 100;
+    const amlCashOutRatio = safeDivide(totalWithdrawals, Math.max(totalVolume, 1)) * 100;
+    const creditRiskScore = Number(loanData.portfolioAtRisk || 0);
+    const operationalCostRatio = safeDivide(financialData.operatingExpenses, Math.max(financialData.bankIncome, 1)) * 100;
+    const stressBufferRatio = safeDivide(financialData.netCashFlow, Math.max(financialData.totalDeposits, 1)) * 100;
+
+    const snapshot: RegulatoryReportItem[] = [
+      {
+        id: 'basel-iii',
+        title: 'Basel III Capital Adequacy (Proxy)',
+        metricLabel: 'Coverage',
+        metricValue: `${capitalAdequacyProxy.toFixed(1)}%`,
+        status: capitalAdequacyProxy >= 12 ? 'healthy' : capitalAdequacyProxy >= 8 ? 'watch' : 'risk',
+        notes: 'Proxy uses income + profit over total loans.',
+      },
+      {
+        id: 'liquidity-coverage',
+        title: 'Liquidity Coverage Ratio (Proxy)',
+        metricLabel: 'LCR',
+        metricValue: `${liquidityCoverageProxy.toFixed(1)}%`,
+        status: liquidityCoverageProxy >= 100 ? 'healthy' : liquidityCoverageProxy >= 80 ? 'watch' : 'risk',
+        notes: 'Proxy uses deposits over withdrawals for selected period.',
+      },
+      {
+        id: 'aml',
+        title: 'Anti-Money Laundering Watch (Proxy)',
+        metricLabel: 'Cash-out Ratio',
+        metricValue: `${amlCashOutRatio.toFixed(1)}%`,
+        status: amlCashOutRatio <= 45 ? 'healthy' : amlCashOutRatio <= 65 ? 'watch' : 'risk',
+        notes: 'Higher withdrawal share may require review.',
+      },
+      {
+        id: 'credit-risk',
+        title: 'Credit Risk Assessment',
+        metricLabel: 'Portfolio at Risk',
+        metricValue: `${creditRiskScore.toFixed(1)}%`,
+        status: creditRiskScore <= 5 ? 'healthy' : creditRiskScore <= 10 ? 'watch' : 'risk',
+        notes: 'Directly sourced from loan portfolio at risk.',
+      },
+      {
+        id: 'operational-risk',
+        title: 'Operational Risk Report (Proxy)',
+        metricLabel: 'Cost-to-Income',
+        metricValue: `${operationalCostRatio.toFixed(1)}%`,
+        status: operationalCostRatio <= 60 ? 'healthy' : operationalCostRatio <= 80 ? 'watch' : 'risk',
+        notes: 'High operating expense burden raises operational risk.',
+      },
+      {
+        id: 'stress-test',
+        title: 'Stress Testing Buffer (Proxy)',
+        metricLabel: 'Net Cash Buffer',
+        metricValue: `${stressBufferRatio.toFixed(1)}%`,
+        status: stressBufferRatio >= 5 ? 'healthy' : stressBufferRatio >= 0 ? 'watch' : 'risk',
+        notes: 'Negative values suggest cashflow stress.',
+      },
+    ];
+
+    setRegulatoryReports(snapshot);
+
+    // Keep customer metrics in sync for UI continuity when switching tabs.
+    setCustomerMetrics(customerData);
+  }, [filters.dateFrom, filters.dateTo]);
+
+  const exportRegulatorySnapshot = () => {
+    if (regulatoryReports.length === 0) return;
+
+    const headers = ['Title', 'Metric', 'Value', 'Status', 'Notes'];
+    const rows = regulatoryReports.map((item) => [
+      item.title,
+      item.metricLabel,
+      item.metricValue,
+      item.status,
+      item.notes,
+    ]);
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `regulatory-snapshot-${filters.dateFrom}-to-${filters.dateTo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const generateReport = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -1293,6 +1492,10 @@ export default function Reports() {
           setCustomerMetrics(customerData);
           break;
         }
+        case 'regulatory-reports': {
+          await buildRegulatorySnapshot();
+          break;
+        }
         default: {
           // Load financial summary by default
           const defaultData = await reportsApi.getFinancialSummary(dateParams);
@@ -1305,12 +1508,90 @@ export default function Reports() {
     } finally {
       setLoading(false);
     }
-  }, [selectedReport, filters]);
+  }, [selectedReport, filters, buildRegulatorySnapshot]);
 
   const exportReport = (format: 'pdf' | 'excel' | 'csv') => {
-    // TODO: Implement export functionality
-    console.log(`Exporting ${selectedReport} as ${format}`);
-  };  const printReport = () => {
+    const requestedFormat = format === 'pdf' ? 'csv' : format;
+    if (requestedFormat !== 'csv' && requestedFormat !== 'excel') {
+      return;
+    }
+
+    const rows: Array<Record<string, string | number>> = [];
+
+    if (selectedReport === 'financial-summary' && financialSummary) {
+      rows.push(
+        { metric: 'Total Deposits', value: financialSummary.totalDeposits },
+        { metric: 'Total Withdrawals', value: financialSummary.totalWithdrawals },
+        { metric: 'Net Cash Flow', value: financialSummary.netCashFlow },
+        { metric: 'Active Accounts', value: financialSummary.activeAccounts },
+        { metric: 'New Accounts', value: financialSummary.newAccounts },
+        { metric: 'Total Loans', value: financialSummary.totalLoans },
+        { metric: 'Loan Repayments', value: financialSummary.loanRepayments },
+        { metric: 'Overdue Loans', value: financialSummary.overdueLoans },
+        { metric: 'Bank Income', value: financialSummary.bankIncome },
+        { metric: 'Operating Expenses', value: financialSummary.operatingExpenses },
+        { metric: 'Net Profit', value: financialSummary.netProfit },
+      );
+    }
+
+    if (selectedReport === 'account-analytics') {
+      accountAnalytics.forEach((item) => {
+        rows.push({
+          accountType: item.accountType,
+          count: item.count,
+          totalBalance: item.totalBalance,
+          averageBalance: item.averageBalance,
+          growthRate: item.growthRate,
+        });
+      });
+    }
+
+    if (selectedReport === 'transaction-summary') {
+      transactionSummary.forEach((item) =>
+        rows.push({
+          date: item.date,
+          deposits: item.deposits,
+          withdrawals: item.withdrawals,
+          transfers: item.transfers,
+          loanRepayments: item.loanRepayments,
+          fees: item.fees,
+          totalVolume: item.totalVolume,
+        })
+      );
+    }
+
+    if (selectedReport === 'customer-metrics' && customerMetrics) {
+      rows.push(
+        { metric: 'Total Customers', value: customerMetrics.totalCustomers },
+        { metric: 'Active Customers', value: customerMetrics.activeCustomers },
+        { metric: 'New Customers', value: customerMetrics.newCustomers },
+        { metric: 'Customer Retention Rate', value: customerMetrics.customerRetentionRate },
+        { metric: 'Average Accounts Per Customer', value: customerMetrics.averageAccountsPerCustomer },
+      );
+    }
+
+    if (rows.length === 0) {
+      return;
+    }
+
+    const headers = Object.keys(rows[0]);
+    const csvContent = [
+      headers.join(','),
+      ...rows.map((row) => headers.map((h) => `"${String(row[h] ?? '').replace(/"/g, '""')}"`).join(',')),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${selectedReport}-${filters.dateFrom}-to-${filters.dateTo}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const printReport = () => {
     // Get the current report's print layout ID
     const printLayoutId = `${selectedReport}-print`;
     const currentPrintLayout = document.getElementById(printLayoutId);
@@ -1601,11 +1882,11 @@ export default function Reports() {
             </div>
             <div className="flex justify-between">
               <span>Repayment Rate:</span>
-              <span className="font-semibold">{formatPercentage((loanPortfolio.totalRepaid / loanPortfolio.totalDisbursed) * 100)}</span>
+              <span className="font-semibold">{safePercent(loanPortfolio.totalRepaid, loanPortfolio.totalDisbursed)}</span>
             </div>
             <div className="flex justify-between">
               <span>Default Rate:</span>
-              <span className="font-semibold text-red-600">{formatPercentage((loanPortfolio.defaultedLoans / loanPortfolio.totalLoans) * 100)}</span>
+              <span className="font-semibold text-red-600">{safePercent(loanPortfolio.defaultedLoans, loanPortfolio.totalLoans)}</span>
             </div>
           </CardContent>
         </Card>
@@ -1747,35 +2028,36 @@ export default function Reports() {
       <Card>
         <CardHeader>
           <CardTitle>Regulatory & Compliance Reports</CardTitle>
-          <CardDescription>Standard regulatory reports for banking compliance</CardDescription>
+          <CardDescription>Auto-generated compliance snapshot from current reporting period</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Basel III Capital Adequacy</span>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" onClick={() => void buildRegulatorySnapshot()} disabled={loading}>
+              {loading ? 'Refreshing...' : 'Refresh Snapshot'}
             </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Liquidity Coverage Ratio</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Anti-Money Laundering</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Credit Risk Assessment</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Operational Risk Report</span>
-            </Button>
-            <Button variant="outline" className="h-20 flex flex-col items-center justify-center">
-              <FileTextIcon className="h-6 w-6 mb-2" />
-              <span>Stress Testing Results</span>
+            <Button variant="outline" onClick={exportRegulatorySnapshot} disabled={regulatoryReports.length === 0}>
+              Export Snapshot CSV
             </Button>
           </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {regulatoryReports.map((item) => (
+              <div key={item.id} className="rounded-md border p-4 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="font-medium">{item.title}</div>
+                  <Badge variant={item.status === 'healthy' ? 'success' : item.status === 'watch' ? 'warning' : 'danger'}>
+                    {item.status.toUpperCase()}
+                  </Badge>
+                </div>
+                <div className="text-sm text-gray-600 dark:text-gray-300">
+                  {item.metricLabel}: <span className="font-semibold">{item.metricValue}</span>
+                </div>
+                <div className="text-xs text-gray-500">{item.notes}</div>
+              </div>
+            ))}
+          </div>
+          {regulatoryReports.length === 0 && (
+            <div className="text-sm text-gray-500">No snapshot generated yet. Click "Refresh Snapshot".</div>
+          )}
         </CardContent>
       </Card>
     </div>
@@ -1841,6 +2123,13 @@ export default function Reports() {
           filters={filters}
           formatCurrency={formatCurrency}
           formatPercentage={formatPercentage}
+        />
+      )}
+
+      {selectedReport === 'regulatory-reports' && regulatoryReports.length > 0 && (
+        <RegulatoryReportsPrintLayout
+          regulatoryReports={regulatoryReports}
+          filters={filters}
         />
       )}
 

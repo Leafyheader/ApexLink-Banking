@@ -3,6 +3,7 @@ import Input from '../ui/Input';
 import Button from '../ui/Button';
 import Select from '../ui/Select';
 import AccountSelect from '../ui/AccountSelect';
+import AccountNotificationsPanel from './AccountNotificationsPanel';
 import { Account, Transaction } from '../../types';
 import { formatCurrency } from '../../lib/utils';
 
@@ -11,7 +12,7 @@ interface TransactionFormProps {
   onSubmit: (data: Partial<Transaction>) => void;
   onCancel: () => void;
   isLoading?: boolean;
-  transactionType?: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment';
+  transactionType?: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares';
 }
 
 const TransactionForm: React.FC<TransactionFormProps> = ({
@@ -118,6 +119,16 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       }
     }
 
+    if (formData.type === 'deposit-shares') {
+      const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
+      if (account) {
+        // Validate that account has shares capability (shareBalance exists)
+        if (typeof account.shareBalance === 'undefined') {
+          newErrors.accountId = 'Shares deposits can only be made to accounts with shares capability';
+        }
+      }
+    }
+
     if (formData.type === 'transfer') {
       if (!formData.toAccountId) {
         newErrors.toAccountId = 'Recipient account is required';
@@ -167,6 +178,17 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           transactionData.reference = `LRP-${Date.now()}`;
         }
       }
+
+      // For deposit-shares, create special description and reference
+      if (formData.type === 'deposit-shares') {
+        const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
+        if (account) {
+          transactionData.description = formData.description || 
+            `Shares deposit to account ${account.accountNumber}`;
+          
+          transactionData.reference = `SHR-${Date.now()}`;
+        }
+      }
       
       onSubmit(transactionData);
     }
@@ -185,6 +207,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           onChange={handleSelectChange('type')}
           options={[
             { value: 'deposit', label: 'Deposit' },
+            { value: 'deposit-shares', label: 'Deposit Shares' },
             { value: 'withdrawal', label: 'Withdrawal' },
             { value: 'transfer', label: 'Transfer' },
             { value: 'loan-repayment', label: 'Loan Repayment' }
@@ -272,6 +295,14 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               placeholder="Search recipient accounts..."
               fullWidth
             />
+            
+            {/* Recipient Account Notifications - Show if account has loan/guarantee restrictions */}
+            {formData.toAccountId && (
+              <AccountNotificationsPanel 
+                accountId={formData.toAccountId} 
+                transactionType="transfer"
+              />
+            )}
           </div>
         ) : (
           /* Single account: Full width for better visibility */
@@ -296,9 +327,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                 });
               }
             }}
-            filter={formData.type === 'loan-repayment' ? (account) => account.type === 'LOAN' : undefined}
+            filter={formData.type === 'loan-repayment' ? (account) => account.type === 'LOAN' 
+                   : formData.type === 'deposit-shares' ? (account) => typeof account.shareBalance !== 'undefined'
+                   : undefined}
             error={errors.accountId}
-            placeholder={formData.type === 'loan-repayment' ? "Search loan accounts..." : "Search accounts or customers..."}
+            placeholder={formData.type === 'loan-repayment' ? "Search loan accounts..." 
+                       : formData.type === 'deposit-shares' ? "Search shares accounts..."
+                       : "Search accounts or customers..."}
             fullWidth
           />
         )}
@@ -344,8 +379,14 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               <br />
               Customer: {selectedAccount.customerName}
               <br />
-                {selectedAccount.type === 'LOAN' ? (
+              {selectedAccount.type === 'LOAN' ? (
                 <>Outstanding Debt: <strong>{formatCurrency(Math.abs(selectedAccount.balance), 'GHS', 'en-GH', 0)}</strong></>
+              ) : formData.type === 'deposit-shares' ? (
+                <>
+                  Share Balance: <strong>{formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}</strong>
+                  <br />
+                  Available Balance: <strong>{formatCurrency(selectedAccount.balance, 'GHS', 'en-GH', 2)}</strong>
+                </>
               ) : (
                 <>Available Balance: <strong>{formatCurrency(selectedAccount.balance, 'GHS', 'en-GH', 2)}</strong></>
               )}
@@ -370,6 +411,31 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
               </p>
             </div>
           )}
+
+          {formData.type === 'deposit-shares' && typeof selectedAccount.shareBalance !== 'undefined' && (
+            <div className="bg-purple-50 border border-purple-200 p-4 rounded-md">
+              <p className="text-sm text-purple-700">
+                <strong>💎 Shares Deposit:</strong>
+                <br />
+                • This deposit will be added to the account's share balance
+                <br />
+                • Current Share Balance: {formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}
+                <br />
+                • Shares can earn dividends based on bank performance
+                <br />
+                • Minimum deposit amount may apply based on account type
+                <br />
+                <br />
+                <em>Note: Share deposits are typically long-term investments in the institution</em>
+              </p>
+            </div>
+          )}
+
+          {/* Account Notifications - Show loan guarantees and restrictions */}
+          <AccountNotificationsPanel 
+            accountId={selectedAccount.id} 
+            transactionType={formData.type || 'withdrawal'}
+          />
         </div>
       )}
       
@@ -388,6 +454,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           variant={
             formData.type === 'deposit' 
               ? 'primary' 
+              : formData.type === 'deposit-shares'
+                ? 'primary'
               : formData.type === 'withdrawal' 
                 ? 'warning' 
                 : formData.type === 'loan-repayment'
@@ -397,6 +465,8 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         >
           {formData.type === 'deposit' 
             ? 'Make Deposit' 
+            : formData.type === 'deposit-shares'
+              ? 'Make Shares Deposit'
             : formData.type === 'withdrawal' 
               ? 'Request Withdrawal' 
               : formData.type === 'loan-repayment'

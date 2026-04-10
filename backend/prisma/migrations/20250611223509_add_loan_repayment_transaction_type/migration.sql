@@ -1,2 +1,0 @@
--- AlterTable
-ALTER TABLE `transaction` MODIFY `type` ENUM('DEPOSIT', 'WITHDRAWAL', 'TRANSFER', 'LOAN_REPAYMENT') NOT NULL;

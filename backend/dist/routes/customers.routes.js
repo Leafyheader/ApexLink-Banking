@@ -5,6 +5,12 @@ const customers_controller_1 = require("../controllers/customers.controller");
 const auth_1 = require("../middleware/auth");
 const validators_1 = require("../middleware/validators");
 const router = (0, express_1.Router)();
+// GET /api/customers/export - Export all customers (must be before /:id route)
+router.get('/export', auth_1.authenticateToken, customers_controller_1.exportCustomers);
+// PATCH /api/customers/visibility/hide-without-accounts - Hide customers with no accounts
+router.patch('/visibility/hide-without-accounts', auth_1.authenticateToken, customers_controller_1.hideCustomersWithoutAccounts);
+// PATCH /api/customers/:id/unhide - Unhide a hidden customer
+router.patch('/:id/unhide', auth_1.authenticateToken, customers_controller_1.unhideCustomer);
 // GET /api/customers - Get all customers with pagination and search
 router.get('/', auth_1.authenticateToken, customers_controller_1.getCustomers);
 // GET /api/customers/:id - Get single customer by ID

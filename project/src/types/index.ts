@@ -14,6 +14,8 @@ export interface Customer {
   id: string;
   customerNumber?: string;  // Human-readable customer ID like CUST000000001
   name: string;
+  isHidden?: boolean;
+  hiddenAt?: string;
   email: string;
   phone: string;
   address: string;
@@ -118,7 +120,7 @@ export interface Transaction {
   accountNumber: string;
   customerName?: string;
   amount: number;
-  type: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment';
+  type: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares';
   status: 'completed' | 'pending' | 'failed';
   date: string;
   description: string;
@@ -163,6 +165,7 @@ export interface Loan {
   guarantor1Percentage?: number;
   guarantor2Percentage?: number;
   guarantor3Percentage?: number;
+  guarantorDetails?: GuarantorDetail[];
   approvedBy?: {
     id: string;
     name: string;
@@ -179,6 +182,24 @@ export interface LoanGuarantor {
   name: string;
   phone?: string;
   email?: string;
+}
+
+export interface GuarantorDetail {
+  id: string;
+  name: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  account: {
+    id: string;
+    accountNumber: string;
+    type: string;
+    balance: number;
+    shareBalance: number;
+  };
+  guaranteedAmount: number;
+  status: 'ACTIVE' | 'RELEASED' | 'DEFAULTED';
+  createdAt: string;
 }
 
 export interface Guarantor {

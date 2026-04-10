@@ -14,10 +14,12 @@ import Accounts from './pages/Accounts';
 import AccountDetail from './pages/AccountDetail';
 import AccountAuthorization from './pages/AccountAuthorization';
 import WithdrawalAuthorization from './pages/WithdrawalAuthorization';
+import LoanAuthorization from './pages/LoanAuthorization';
 import Transactions from './pages/Transactions';
 import Loans from './pages/Loans';
 import BankIncome from './pages/BankIncome';
 import Reports from './pages/Reports';
+import Audit from './pages/Audit';
 import Expenses from './pages/Expenses';
 import ExpenseApproval from './pages/ExpenseApproval';
 import Users from './pages/Users';
@@ -55,6 +57,7 @@ const App: React.FC = () => {
               <Route path="accounts/:id" element={<AccountDetail />} />
               <Route path="account-authorizations" element={<AccountAuthorization />} />
               <Route path="withdrawal-authorizations" element={<WithdrawalAuthorization />} />
+              <Route path="loan-authorizations" element={<LoanAuthorization />} />
               <Route path="transactions" element={<Transactions />} />
               <Route path="loans" element={<Loans />} />
               <Route path="bank-income" element={<BankIncome />} />
@@ -63,6 +66,7 @@ const App: React.FC = () => {
               <Route path="users" element={<Users />} />
               <Route path="users/new" element={<CreateUser />} />
               <Route path="reports" element={<Reports />} />
+              <Route path="audit" element={<Audit />} />
               {/* Add routes for other pages as they are created */}
             </Route>
             

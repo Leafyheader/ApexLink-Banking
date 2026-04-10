@@ -6,11 +6,13 @@ import {
   UserCog,
   Trash2,
   Eye,
+  EyeOff,
   X,
   CreditCard,
   Download,
   Upload,
-  FileText
+  FileText,
+  RotateCcw
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -38,6 +40,8 @@ const Customers: React.FC = () => {
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
+  const [showHiddenOnly, setShowHiddenOnly] = useState(false);
+  const [isUpdatingVisibility, setIsUpdatingVisibility] = useState(false);
   
   // Modal states
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -169,6 +173,10 @@ const Customers: React.FC = () => {
         page: currentPage.toString(),
         limit: itemsPerPage.toString(),
       });
+
+      if (showHiddenOnly) {
+        params.append('hiddenOnly', 'true');
+      }
       
       if (searchQuery.trim()) {
         params.append('search', searchQuery.trim());
@@ -184,7 +192,7 @@ const Customers: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, itemsPerPage, searchQuery]);
+  }, [currentPage, itemsPerPage, searchQuery, showHiddenOnly]);
 
   useEffect(() => {
     fetchCustomers();
@@ -211,6 +219,36 @@ const Customers: React.FC = () => {
   const handleDeleteCustomer = (customer: Customer) => {
     setCurrentCustomer(customer);
     setIsDeleteModalOpen(true);
+  };
+
+  const handleHideCustomersWithoutAccounts = async () => {
+    const confirmed = window.confirm('Hide all customers that do not have any accounts? You can unhide them later.');
+    if (!confirmed) return;
+
+    try {
+      setIsUpdatingVisibility(true);
+      const response = await api.patch('/customers/visibility/hide-without-accounts');
+      await fetchCustomers();
+      alert(`Hidden ${response.data.hiddenCount ?? 0} customer${response.data.hiddenCount === 1 ? '' : 's'} without accounts.`);
+    } catch (err) {
+      console.error('Failed to hide customers without accounts:', err);
+      setError('Failed to hide customers without accounts');
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
+  };
+
+  const handleUnhideCustomer = async (customer: Customer) => {
+    try {
+      setIsUpdatingVisibility(true);
+      await api.patch(`/customers/${customer.id}/unhide`);
+      await fetchCustomers();
+    } catch (err) {
+      console.error('Failed to unhide customer:', err);
+      setError('Failed to unhide customer');
+    } finally {
+      setIsUpdatingVisibility(false);
+    }
   };
 
   // Handle view customer transactions
@@ -274,69 +312,94 @@ const Customers: React.FC = () => {
   };
 
   // Export customers to CSV
-  const exportCustomers = () => {
-    if (customers.length === 0) {
-      alert('No customers to export');
-      return;
+  const exportCustomers = async () => {
+    try {
+      setIsLoading(true);
+
+      const exportParams = new URLSearchParams();
+      if (searchQuery.trim()) {
+        exportParams.append('search', searchQuery.trim());
+      }
+      if (showHiddenOnly) {
+        exportParams.append('hiddenOnly', 'true');
+      }
+
+      const responseWithFilters = await api.get(`/customers/export?${exportParams.toString()}`);
+      const filteredCustomers = responseWithFilters.data.customers;
+      
+      if (filteredCustomers.length === 0) {
+        alert('No customers to export');
+        return;
+      }
+
+      const headers = [
+        'Name', 'Email', 'Phone', 'Address', 'Date of Birth', 'Occupation', 
+        'First Name', 'Surname', 'Other Name', 'Gender', 'Marital Status', 'Workplace',
+        'Residential Address', 'Postal Address', 'Contact Number', 'City',
+        'Identification Type', 'Identification Number',
+        'Beneficiary Name', 'Beneficiary Contact', 'Beneficiary Relation', 'Beneficiary Percentage',
+        'Beneficiary 2 Name', 'Beneficiary 2 Contact', 'Beneficiary 2 Relation', 'Beneficiary 2 Percentage',
+        'Beneficiary 3 Name', 'Beneficiary 3 Contact', 'Beneficiary 3 Relation', 'Beneficiary 3 Percentage',
+        'KYC Status', 'Date Joined'
+      ];
+      const csvData = [
+        headers.join(','),
+        ...filteredCustomers.map((customer: Customer) => [
+          `"${customer.name}"`,
+          `"${customer.email}"`,
+          `"${customer.phone}"`,
+          `"${customer.address || ''}"`,
+          `"${customer.dateOfBirth || ''}"`,
+          `"${customer.occupation || ''}"`,
+          `"${customer.firstName || ''}"`,
+          `"${customer.surname || ''}"`,
+          `"${customer.otherName || ''}"`,
+          `"${customer.gender || ''}"`,
+          `"${customer.maritalStatus || ''}"`,
+          `"${customer.workplace || ''}"`,
+          `"${customer.residentialAddress || ''}"`,
+          `"${customer.postalAddress || ''}"`,
+          `"${customer.contactNumber || ''}"`,
+          `"${customer.city || ''}"`,
+          `"${customer.identificationType || ''}"`,
+          `"${customer.identificationNumber || ''}"`,
+          `"${customer.beneficiaryName || ''}"`,
+          `"${customer.beneficiaryContact || ''}"`,
+          `"${customer.beneficiaryRelation || ''}"`,
+          `"${customer.beneficiaryPercentage || ''}"`,
+          `"${customer.beneficiary2Name || ''}"`,
+          `"${customer.beneficiary2Contact || ''}"`,
+          `"${customer.beneficiary2Relation || ''}"`,
+          `"${customer.beneficiary2Percentage || ''}"`,
+          `"${customer.beneficiary3Name || ''}"`,
+          `"${customer.beneficiary3Contact || ''}"`,
+          `"${customer.beneficiary3Relation || ''}"`,
+          `"${customer.beneficiary3Percentage || ''}"`,
+          `"${customer.kycStatus}"`,
+          `"${customer.dateJoined}"`
+        ].join(','))
+      ].join('\n');
+
+      const blob = new Blob([csvData], { type: 'text/csv;charset=utf-8;' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `customers_export_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      
+      const message = `Successfully exported ${filteredCustomers.length} customer${filteredCustomers.length !== 1 ? 's' : ''}`;
+      alert(message);
+      console.log('Export complete:', message);
+    } catch (err) {
+      console.error('Failed to export customers:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to export customers: ${errorMsg}. Please try again.`);
+    } finally {
+      setIsLoading(false);
     }
-
-    const headers = [
-      'Name', 'Email', 'Phone', 'Address', 'Date of Birth', 'Occupation', 
-      'First Name', 'Surname', 'Other Name', 'Gender', 'Marital Status', 'Workplace',
-      'Residential Address', 'Postal Address', 'Contact Number', 'City',
-      'Identification Type', 'Identification Number',
-      'Beneficiary Name', 'Beneficiary Contact', 'Beneficiary Relation', 'Beneficiary Percentage',
-      'Beneficiary 2 Name', 'Beneficiary 2 Contact', 'Beneficiary 2 Relation', 'Beneficiary 2 Percentage',
-      'Beneficiary 3 Name', 'Beneficiary 3 Contact', 'Beneficiary 3 Relation', 'Beneficiary 3 Percentage',
-      'KYC Status', 'Date Joined'
-    ];
-    const csvData = [
-      headers.join(','),
-      ...customers.map(customer => [
-        `"${customer.name}"`,
-        `"${customer.email}"`,
-        `"${customer.phone}"`,
-        `"${customer.address || ''}"`,
-        `"${customer.dateOfBirth || ''}"`,
-        `"${customer.occupation || ''}"`,
-        `"${customer.firstName || ''}"`,
-        `"${customer.surname || ''}"`,
-        `"${customer.otherName || ''}"`,
-        `"${customer.gender || ''}"`,
-        `"${customer.maritalStatus || ''}"`,
-        `"${customer.workplace || ''}"`,
-        `"${customer.residentialAddress || ''}"`,
-        `"${customer.postalAddress || ''}"`,
-        `"${customer.contactNumber || ''}"`,
-        `"${customer.city || ''}"`,
-        `"${customer.identificationType || ''}"`,
-        `"${customer.identificationNumber || ''}"`,
-        `"${customer.beneficiaryName || ''}"`,
-        `"${customer.beneficiaryContact || ''}"`,
-        `"${customer.beneficiaryRelation || ''}"`,
-        `"${customer.beneficiaryPercentage || ''}"`,
-        `"${customer.beneficiary2Name || ''}"`,
-        `"${customer.beneficiary2Contact || ''}"`,
-        `"${customer.beneficiary2Relation || ''}"`,
-        `"${customer.beneficiary2Percentage || ''}"`,
-        `"${customer.beneficiary3Name || ''}"`,
-        `"${customer.beneficiary3Contact || ''}"`,
-        `"${customer.beneficiary3Relation || ''}"`,
-        `"${customer.beneficiary3Percentage || ''}"`,
-        `"${customer.kycStatus}"`,
-        `"${customer.dateJoined}"`
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvData], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `customers_export_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
   };
 
   // Handle file selection
@@ -467,14 +530,6 @@ const Customers: React.FC = () => {
           // Validate required fields
           if (!customer.name) {
             errors.push(`Row ${i + 2}: Name is required`);
-            continue;
-          }
-
-          // Skip rows where Beneficiary Name is null, empty, or contains "NULL"
-          if (!customer.beneficiaryName || 
-              !customer.beneficiaryName.trim() || 
-              customer.beneficiaryName.trim().toLowerCase() === 'null') {
-            errors.push(`Row ${i + 2} (${customer.name}): Skipped - Beneficiary Name is required (cannot be empty or NULL)`);
             continue;
           }
 
@@ -719,6 +774,18 @@ const Customers: React.FC = () => {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={showHiddenOnly}
+              onChange={(e) => {
+                setShowHiddenOnly(e.target.checked);
+                setCurrentPage(1);
+              }}
+              className="rounded border-gray-300"
+            />
+            Show hidden only
+          </label>
           <Button
             variant="outline"
             leftIcon={<FileText size={18} />}
@@ -732,6 +799,14 @@ const Customers: React.FC = () => {
             onClick={exportCustomers}
           >
             Export CSV
+          </Button>
+          <Button
+            variant="outline"
+            leftIcon={<EyeOff size={18} />}
+            onClick={handleHideCustomersWithoutAccounts}
+            isLoading={isUpdatingVisibility}
+          >
+            Hide Without Accounts
           </Button>
           <Button
             variant="outline"
@@ -759,6 +834,7 @@ const Customers: React.FC = () => {
                 <TableHead>Phone</TableHead>
                 <TableHead>KYC Status</TableHead>
                 <TableHead>Date Joined</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
@@ -777,6 +853,13 @@ const Customers: React.FC = () => {
                 </TableCell>
                 <TableCell>{formatDate(customer.dateJoined)}</TableCell>
                 <TableCell>
+                  {customer.isHidden ? (
+                    <Badge variant="warning">Hidden</Badge>
+                  ) : (
+                    <Badge variant="success">Visible</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
                   <div className="flex space-x-2">
                     <Button
                       variant="ghost"
@@ -789,27 +872,42 @@ const Customers: React.FC = () => {
                     <Button
                       variant="ghost"
                       size="sm"
-                      leftIcon={<CreditCard size={16} />}
+                      leftIcon={customer.isHidden ? <RotateCcw size={16} /> : <CreditCard size={16} />}
                       onClick={() => handleViewTransactions(customer)}
+                      disabled={customer.isHidden}
                     >
-                      Transactions
+                      {customer.isHidden ? 'Transactions Hidden' : 'Transactions'}
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      leftIcon={<UserCog size={16} />}
-                      onClick={() => handleEditCustomer(customer)}
-                    >
-                      Edit
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      leftIcon={<Trash2 size={16} />}
-                      onClick={() => handleDeleteCustomer(customer)}
-                    >
-                      Delete
-                    </Button>
+                    {customer.isHidden ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<RotateCcw size={16} />}
+                        onClick={() => handleUnhideCustomer(customer)}
+                        disabled={isUpdatingVisibility}
+                      >
+                        Unhide
+                      </Button>
+                    ) : (
+                      <>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={<UserCog size={16} />}
+                          onClick={() => handleEditCustomer(customer)}
+                        >
+                          Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={<Trash2 size={16} />}
+                          onClick={() => handleDeleteCustomer(customer)}
+                        >
+                          Delete
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </TableCell>
               </TableRow>
@@ -817,10 +915,12 @@ const Customers: React.FC = () => {
 
             {customers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={7} className="text-center py-6 text-gray-500">
                   {searchQuery
                     ? 'No customers found matching your search criteria'
-                    : 'No customers found'}
+                    : showHiddenOnly
+                      ? 'No hidden customers found'
+                      : 'No customers found'}
                 </TableCell>
               </TableRow>
             )}
@@ -832,8 +932,11 @@ const Customers: React.FC = () => {
       {/* Summary Information */}
       <div className="flex justify-between items-center text-sm text-gray-600">
         <span>
-          Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} customers
+          {totalItems > 0
+            ? `Showing ${((currentPage - 1) * itemsPerPage) + 1} to ${Math.min(currentPage * itemsPerPage, totalItems)} of ${totalItems} customers`
+            : 'Showing 0 customers'}
           {searchQuery && ` (search: "${searchQuery}")`}
+          {showHiddenOnly && ' (hidden only)'}
         </span>
         <span>
           Page {currentPage} of {totalPages || 1}
@@ -1026,8 +1129,7 @@ const Customers: React.FC = () => {
           <div className="text-sm text-gray-600">
             <p className="font-medium">CSV Format Requirements:</p>
             <ul className="mt-1 space-y-1 text-sm">
-              <li>• <strong>Required columns:</strong> name (or "Full Name") and beneficiaryName (primary beneficiary)</li>
-              <li>• <strong>Beneficiary Name validation:</strong> Must not be empty, null, or contain "NULL" (case-insensitive)</li>
+              <li>• <strong>Required columns:</strong> name (or "Full Name")</li>
               <li>• <strong>Optional fields:</strong> All other fields are optional, empty values treated as null</li>
               <li>• <strong>Flexible headers:</strong> Column names are case-insensitive and support variations</li>
               <li>• <strong>Phone/Contact numbers:</strong> Accepted as text (strings), empty spaces treated as null</li>

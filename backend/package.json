@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",
-    "calculate-interest": "ts-node scripts/dailyInterestCalculator.ts"
+    "calculate-interest": "ts-node scripts/dailyInterestCalculator.ts",
+    "reconcile:ledger": "ts-node scripts/reconcileLedgerConsistency.ts"
   },
   "keywords": [],
   "author": "",

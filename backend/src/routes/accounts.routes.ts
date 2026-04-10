@@ -5,7 +5,8 @@ import {
   createAccount, 
   updateAccount, 
   deleteAccount,
-  updateAccountStatus 
+  updateAccountStatus,
+  bulkActivateAccounts
 } from '../controllers/accounts.controller';
 import { authenticateToken } from '../middleware/auth';
 import { validateAccountData, validateAccountStatus } from '../middleware/validators';
@@ -20,6 +21,9 @@ router.get('/:id', authenticateToken, getAccountById);
 
 // Create new account
 router.post('/', authenticateToken, validateAccountData, createAccount);
+
+// Bulk activate all accounts
+router.post('/bulk-activate', authenticateToken, bulkActivateAccounts);
 
 // Update account
 router.put('/:id', authenticateToken, updateAccount);

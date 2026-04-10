@@ -77,21 +77,45 @@ const EditCustomer: React.FC = () => {
         const response = await api.get(`/customers/${id}`);
         const customer = response.data;
 
+        const fullName = (customer.name || '').trim();
+        const nameParts = fullName.length > 0 ? fullName.split(/\s+/) : [];
+
+        const derivedFirstName = nameParts.length > 0 ? nameParts[0] : '';
+        const derivedSurname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : '';
+        const derivedOtherName = nameParts.length > 2 ? nameParts.slice(1, -1).join(' ') : '';
+
+        const firstName = (customer.firstName || '').trim() || derivedFirstName;
+        const surname = (customer.surname || '').trim() || derivedSurname;
+        const otherName = (customer.otherName || '').trim() || derivedOtherName;
+
+        const normalizeOptionValue = (value?: string): string | undefined => {
+          if (!value) return undefined;
+          return value.toLowerCase().replace(/\s+/g, '_');
+        };
+
+        const normalizeKycStatus = (value?: string): 'verified' | 'pending' | 'rejected' => {
+          const normalized = normalizeOptionValue(value);
+          if (normalized === 'verified' || normalized === 'pending' || normalized === 'rejected') {
+            return normalized;
+          }
+          return 'pending';
+        };
+
         // Convert date to proper format for date input
         const dateOfBirth = customer.dateOfBirth 
           ? new Date(customer.dateOfBirth).toISOString().split('T')[0] 
           : '';
 
         setFormData({
-          firstName: customer.firstName || '',
-          surname: customer.surname || '',
-          otherName: customer.otherName || '',
-          gender: customer.gender || undefined,
+          firstName,
+          surname,
+          otherName,
+          gender: normalizeOptionValue(customer.gender),
           dateOfBirth,
           occupation: customer.occupation || '',
           workplace: customer.workplace || '',
-          maritalStatus: customer.maritalStatus || undefined,
-          residentialAddress: customer.residentialAddress || '',
+          maritalStatus: normalizeOptionValue(customer.maritalStatus),
+          residentialAddress: customer.residentialAddress || customer.address || '',
           postalAddress: customer.postalAddress || '',
           email: customer.email || '',
           contactNumber: customer.contactNumber || customer.phone || '',
@@ -108,11 +132,11 @@ const EditCustomer: React.FC = () => {
           beneficiary3Contact: customer.beneficiary3Contact || '',
           beneficiary3Relation: customer.beneficiary3Relation || '',
           beneficiary3Percentage: customer.beneficiary3Percentage || 0,
-          identificationType: customer.identificationType || undefined,
+          identificationType: normalizeOptionValue(customer.identificationType),
           identificationNumber: customer.identificationNumber || '',
           photo: customer.photo || '',
           signature: customer.signature || '',
-          kycStatus: customer.kycStatus || 'pending',
+          kycStatus: normalizeKycStatus(customer.kycStatus),
         });        // Set photo and signature previews if they exist
         if (customer.photo) {
           if (customer.photo.startsWith('/uploads/')) {
@@ -446,8 +470,12 @@ const EditCustomer: React.FC = () => {
         }
 
         // Combine first name and surname for the name field
+        const fullNameParts = [formData.firstName, formData.otherName, formData.surname]
+          .map((part) => (part || '').trim())
+          .filter((part) => part.length > 0);
+
         const customerData: Omit<Customer, 'id' | 'accounts'> = {
-          name: `${formData.firstName} ${formData.surname}`,
+          name: fullNameParts.join(' '),
           firstName: formData.firstName || '',
           surname: formData.surname || '',
           otherName: formData.otherName || '',

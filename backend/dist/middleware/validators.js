@@ -94,6 +94,10 @@ exports.validateKYCStatus = [
 exports.validateAccountData = [
     (0, express_validator_1.body)('customerId')
         .notEmpty().withMessage('Customer ID is required'),
+    (0, express_validator_1.body)('accountNumber')
+        .optional()
+        .isString().withMessage('Account number must be a string')
+        .isLength({ min: 2, max: 30 }).withMessage('Account number length is invalid'),
     (0, express_validator_1.body)('type')
         .notEmpty().withMessage('Account type is required')
         .isIn(['SAVINGS', 'CURRENT', 'LOAN']).withMessage('Invalid account type'),

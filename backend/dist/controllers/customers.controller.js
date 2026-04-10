@@ -1,18 +1,70 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.updateKYCStatus = exports.deleteCustomer = exports.updateCustomer = exports.createCustomer = exports.getCustomerById = exports.getCustomers = void 0;
+exports.unhideCustomer = exports.hideCustomersWithoutAccounts = exports.updateKYCStatus = exports.deleteCustomer = exports.updateCustomer = exports.createCustomer = exports.getCustomerById = exports.exportCustomers = exports.getCustomers = void 0;
 const client_1 = require("@prisma/client");
 const idGenerator_1 = require("../utils/idGenerator");
 const prisma = new client_1.PrismaClient();
+const formatCustomerResponse = (customer) => {
+    var _a, _b;
+    return ({
+        id: customer.id,
+        customerNumber: customer.customerNumber,
+        name: customer.name,
+        isHidden: customer.isHidden,
+        hiddenAt: (_a = customer.hiddenAt) === null || _a === void 0 ? void 0 : _a.toISOString(),
+        email: customer.email || '',
+        phone: customer.phone || customer.contactNumber || '',
+        address: customer.address || customer.residentialAddress || '',
+        kycStatus: customer.kycStatus.toLowerCase(),
+        dateJoined: customer.dateJoined.toISOString(),
+        accounts: customer.accounts || [],
+        firstName: customer.firstName,
+        surname: customer.surname,
+        otherName: customer.otherName,
+        gender: customer.gender,
+        dateOfBirth: (_b = customer.dateOfBirth) === null || _b === void 0 ? void 0 : _b.toISOString(),
+        occupation: customer.occupation,
+        workplace: customer.workplace,
+        maritalStatus: customer.maritalStatus,
+        residentialAddress: customer.residentialAddress,
+        postalAddress: customer.postalAddress,
+        contactNumber: customer.contactNumber,
+        city: customer.city,
+        beneficiaryName: customer.beneficiaryName,
+        beneficiaryContact: customer.beneficiaryContact,
+        beneficiaryRelation: customer.beneficiaryRelation,
+        beneficiaryPercentage: customer.beneficiaryPercentage,
+        beneficiary2Name: customer.beneficiary2Name,
+        beneficiary2Contact: customer.beneficiary2Contact,
+        beneficiary2Relation: customer.beneficiary2Relation,
+        beneficiary2Percentage: customer.beneficiary2Percentage,
+        beneficiary3Name: customer.beneficiary3Name,
+        beneficiary3Contact: customer.beneficiary3Contact,
+        beneficiary3Relation: customer.beneficiary3Relation,
+        beneficiary3Percentage: customer.beneficiary3Percentage,
+        identificationType: customer.identificationType,
+        identificationNumber: customer.identificationNumber,
+        photo: customer.photo,
+        signature: customer.signature,
+        createdBy: customer.createdBy
+    });
+};
 // Get all customers with pagination and search
 const getCustomers = async (req, res) => {
     try {
-        const { page = '1', limit = '10', search = '', kycStatus } = req.query;
+        const { page = '1', limit = '10', search = '', kycStatus, includeHidden = 'false', hiddenOnly = 'false' } = req.query;
         const pageNum = parseInt(page);
-        const limitNum = parseInt(limit);
+        // Allow large limit values for export functionality, but cap at 100000 for safety
+        const limitNum = Math.min(parseInt(limit), 100000);
         const offset = (pageNum - 1) * limitNum;
         // Build where clause for search and filtering
         const whereClause = {};
+        if (hiddenOnly === 'true') {
+            whereClause.isHidden = true;
+        }
+        else if (includeHidden !== 'true') {
+            whereClause.isHidden = false;
+        }
         if (search && typeof search === 'string' && search.trim()) {
             whereClause.OR = [
                 { name: { contains: search } },
@@ -53,49 +105,7 @@ const getCustomers = async (req, res) => {
             }),
             prisma.customer.count({ where: whereClause })
         ]); // Format the response to match frontend expectations
-        const formattedCustomers = customers.map((customer) => {
-            var _a;
-            return ({
-                id: customer.id,
-                name: customer.name,
-                email: customer.email || '',
-                phone: customer.phone || customer.contactNumber || '',
-                address: customer.address || customer.residentialAddress || '',
-                kycStatus: customer.kycStatus.toLowerCase(),
-                dateJoined: customer.dateJoined.toISOString(),
-                accounts: customer.accounts,
-                // Extended fields
-                firstName: customer.firstName,
-                surname: customer.surname,
-                otherName: customer.otherName,
-                gender: customer.gender,
-                dateOfBirth: (_a = customer.dateOfBirth) === null || _a === void 0 ? void 0 : _a.toISOString(),
-                occupation: customer.occupation,
-                workplace: customer.workplace,
-                maritalStatus: customer.maritalStatus,
-                residentialAddress: customer.residentialAddress,
-                postalAddress: customer.postalAddress,
-                contactNumber: customer.contactNumber,
-                city: customer.city,
-                beneficiaryName: customer.beneficiaryName,
-                beneficiaryContact: customer.beneficiaryContact,
-                beneficiaryRelation: customer.beneficiaryRelation,
-                beneficiaryPercentage: customer.beneficiaryPercentage,
-                beneficiary2Name: customer.beneficiary2Name,
-                beneficiary2Contact: customer.beneficiary2Contact,
-                beneficiary2Relation: customer.beneficiary2Relation,
-                beneficiary2Percentage: customer.beneficiary2Percentage,
-                beneficiary3Name: customer.beneficiary3Name,
-                beneficiary3Contact: customer.beneficiary3Contact,
-                beneficiary3Relation: customer.beneficiary3Relation,
-                beneficiary3Percentage: customer.beneficiary3Percentage,
-                identificationType: customer.identificationType,
-                identificationNumber: customer.identificationNumber,
-                photo: customer.photo,
-                signature: customer.signature,
-                createdBy: customer.createdBy
-            });
-        });
+        const formattedCustomers = customers.map(formatCustomerResponse);
         res.json({
             customers: formattedCustomers,
             pagination: {
@@ -112,9 +122,91 @@ const getCustomers = async (req, res) => {
     }
 };
 exports.getCustomers = getCustomers;
+// Export all customers (optimized for CSV export)
+const exportCustomers = async (req, res) => {
+    try {
+        const { search = '', kycStatus, includeHidden = 'false', hiddenOnly = 'false' } = req.query;
+        // Build where clause for search and filtering
+        const whereClause = {};
+        if (hiddenOnly === 'true') {
+            whereClause.isHidden = true;
+        }
+        else if (includeHidden !== 'true') {
+            whereClause.isHidden = false;
+        }
+        if (search && typeof search === 'string' && search.trim()) {
+            whereClause.OR = [
+                { name: { contains: search } },
+                { email: { contains: search } },
+                { phone: { contains: search } },
+                { contactNumber: { contains: search } }
+            ];
+        }
+        if (kycStatus) {
+            whereClause.kycStatus = kycStatus;
+        }
+        // Fetch all customers without pagination, but with minimal includes for performance
+        const customers = await prisma.customer.findMany({
+            where: whereClause,
+            select: {
+                id: true,
+                customerNumber: true,
+                name: true,
+                isHidden: true,
+                hiddenAt: true,
+                email: true,
+                phone: true,
+                address: true,
+                kycStatus: true,
+                dateJoined: true,
+                firstName: true,
+                surname: true,
+                otherName: true,
+                gender: true,
+                dateOfBirth: true,
+                occupation: true,
+                workplace: true,
+                maritalStatus: true,
+                residentialAddress: true,
+                postalAddress: true,
+                contactNumber: true,
+                city: true,
+                beneficiaryName: true,
+                beneficiaryContact: true,
+                beneficiaryRelation: true,
+                beneficiaryPercentage: true,
+                beneficiary2Name: true,
+                beneficiary2Contact: true,
+                beneficiary2Relation: true,
+                beneficiary2Percentage: true,
+                beneficiary3Name: true,
+                beneficiary3Contact: true,
+                beneficiary3Relation: true,
+                beneficiary3Percentage: true,
+                identificationType: true,
+                identificationNumber: true,
+                photo: true,
+                signature: true,
+            },
+            orderBy: {
+                createdAt: 'desc'
+            }
+        });
+        // Format the response
+        const formattedCustomers = customers.map(formatCustomerResponse);
+        res.json({
+            customers: formattedCustomers,
+            total: formattedCustomers.length
+        });
+    }
+    catch (error) {
+        console.error('Error exporting customers:', error);
+        res.status(500).json({ error: 'Failed to export customers' });
+    }
+};
+exports.exportCustomers = exportCustomers;
 // Get single customer by ID
 const getCustomerById = async (req, res) => {
-    var _a;
     try {
         const { id } = req.params;
         const customer = await prisma.customer.findUnique({
@@ -142,46 +234,7 @@ const getCustomerById = async (req, res) => {
             return;
         }
         // Format the response
-        const formattedCustomer = {
-            id: customer.id,
-            name: customer.name,
-            email: customer.email || '',
-            phone: customer.phone || customer.contactNumber || '',
-            address: customer.address || customer.residentialAddress || '',
-            kycStatus: customer.kycStatus.toLowerCase(),
-            dateJoined: customer.dateJoined.toISOString(),
-            accounts: customer.accounts,
-            // Extended fields
-            firstName: customer.firstName,
-            surname: customer.surname,
-            otherName: customer.otherName,
-            gender: customer.gender,
-            dateOfBirth: (_a = customer.dateOfBirth) === null || _a === void 0 ? void 0 : _a.toISOString(),
-            occupation: customer.occupation,
-            workplace: customer.workplace,
-            maritalStatus: customer.maritalStatus,
-            residentialAddress: customer.residentialAddress,
-            postalAddress: customer.postalAddress,
-            contactNumber: customer.contactNumber,
-            city: customer.city,
-            beneficiaryName: customer.beneficiaryName,
-            beneficiaryContact: customer.beneficiaryContact,
-            beneficiaryRelation: customer.beneficiaryRelation,
-            beneficiaryPercentage: customer.beneficiaryPercentage,
-            beneficiary2Name: customer.beneficiary2Name,
-            beneficiary2Contact: customer.beneficiary2Contact,
-            beneficiary2Relation: customer.beneficiary2Relation,
-            beneficiary2Percentage: customer.beneficiary2Percentage,
-            beneficiary3Name: customer.beneficiary3Name,
-            beneficiary3Contact: customer.beneficiary3Contact,
-            beneficiary3Relation: customer.beneficiary3Relation,
-            beneficiary3Percentage: customer.beneficiary3Percentage,
-            identificationType: customer.identificationType,
-            identificationNumber: customer.identificationNumber,
-            photo: customer.photo,
-            signature: customer.signature,
-            createdBy: customer.createdBy
-        };
+        const formattedCustomer = formatCustomerResponse(customer);
         res.json(formattedCustomer);
     }
     catch (error) {
@@ -192,7 +245,6 @@ const getCustomerById = async (req, res) => {
 exports.getCustomerById = getCustomerById;
 // Create new customer
 const createCustomer = async (req, res) => {
-    var _a;
     try {
         const { name, email, phone, address, firstName, surname, otherName, gender, dateOfBirth, occupation, workplace, maritalStatus, residentialAddress, postalAddress, contactNumber, city, beneficiaryName, beneficiaryContact, beneficiaryRelation, beneficiaryPercentage, beneficiary2Name, beneficiary2Contact, beneficiary2Relation, beneficiary2Percentage, beneficiary3Name, beneficiary3Contact, beneficiary3Relation, beneficiary3Percentage, identificationType, identificationNumber, photo, signature } = req.body;
         const userId = req.user.id;
@@ -270,47 +322,7 @@ const createCustomer = async (req, res) => {
             res.status(500).json({ error: 'Failed to fetch created customer' });
             return;
         } // Format the response
-        const formattedCustomer = {
-            id: customerWithRelations.id,
-            customerNumber: customerWithRelations.customerNumber, // Temporary type assertion
-            name: customerWithRelations.name,
-            email: customerWithRelations.email || '',
-            phone: customerWithRelations.phone || customerWithRelations.contactNumber || '',
-            address: customerWithRelations.address || customerWithRelations.residentialAddress || '',
-            kycStatus: customerWithRelations.kycStatus.toLowerCase(),
-            dateJoined: customerWithRelations.dateJoined.toISOString(),
-            accounts: customerWithRelations.accounts,
-            // Include all extended fields
-            firstName: customerWithRelations.firstName,
-            surname: customerWithRelations.surname,
-            otherName: customerWithRelations.otherName,
-            gender: customerWithRelations.gender,
-            dateOfBirth: (_a = customerWithRelations.dateOfBirth) === null || _a === void 0 ? void 0 : _a.toISOString(),
-            occupation: customerWithRelations.occupation,
-            workplace: customerWithRelations.workplace,
-            maritalStatus: customerWithRelations.maritalStatus,
-            residentialAddress: customerWithRelations.residentialAddress,
-            postalAddress: customerWithRelations.postalAddress,
-            contactNumber: customerWithRelations.contactNumber,
-            city: customerWithRelations.city,
-            beneficiaryName: customerWithRelations.beneficiaryName,
-            beneficiaryContact: customerWithRelations.beneficiaryContact,
-            beneficiaryRelation: customerWithRelations.beneficiaryRelation,
-            beneficiaryPercentage: customerWithRelations.beneficiaryPercentage,
-            beneficiary2Name: customerWithRelations.beneficiary2Name,
-            beneficiary2Contact: customerWithRelations.beneficiary2Contact,
-            beneficiary2Relation: customerWithRelations.beneficiary2Relation,
-            beneficiary2Percentage: customerWithRelations.beneficiary2Percentage,
-            beneficiary3Name: customerWithRelations.beneficiary3Name,
-            beneficiary3Contact: customerWithRelations.beneficiary3Contact,
-            beneficiary3Relation: customerWithRelations.beneficiary3Relation,
-            beneficiary3Percentage: customerWithRelations.beneficiary3Percentage,
-            identificationType: customerWithRelations.identificationType,
-            identificationNumber: customerWithRelations.identificationNumber,
-            photo: customerWithRelations.photo,
-            signature: customerWithRelations.signature,
-            createdBy: customerWithRelations.createdBy
-        };
+        const formattedCustomer = formatCustomerResponse(customerWithRelations);
         res.status(201).json(formattedCustomer);
     }
     catch (error) {
@@ -325,7 +337,6 @@ const createCustomer = async (req, res) => {
 exports.createCustomer = createCustomer;
 // Update customer
 const updateCustomer = async (req, res) => {
-    var _a;
     try {
         console.log('🔍 updateCustomer called with ID:', req.params.id);
         console.log('🔍 updateData received:', JSON.stringify(req.body, null, 2));
@@ -389,46 +400,7 @@ const updateCustomer = async (req, res) => {
             }
         });
         // Format the response
-        const formattedCustomer = {
-            id: customer.id,
-            name: customer.name,
-            email: customer.email || '',
-            phone: customer.phone || customer.contactNumber || '',
-            address: customer.address || customer.residentialAddress || '',
-            kycStatus: customer.kycStatus.toLowerCase(),
-            dateJoined: customer.dateJoined.toISOString(),
-            accounts: customer.accounts,
-            // Include all extended fields
-            firstName: customer.firstName,
-            surname: customer.surname,
-            otherName: customer.otherName,
-            gender: customer.gender,
-            dateOfBirth: (_a = customer.dateOfBirth) === null || _a === void 0 ? void 0 : _a.toISOString(),
-            occupation: customer.occupation,
-            workplace: customer.workplace,
-            maritalStatus: customer.maritalStatus,
-            residentialAddress: customer.residentialAddress,
-            postalAddress: customer.postalAddress,
-            contactNumber: customer.contactNumber,
-            city: customer.city,
-            beneficiaryName: customer.beneficiaryName,
-            beneficiaryContact: customer.beneficiaryContact,
-            beneficiaryRelation: customer.beneficiaryRelation,
-            beneficiaryPercentage: customer.beneficiaryPercentage,
-            beneficiary2Name: customer.beneficiary2Name,
-            beneficiary2Contact: customer.beneficiary2Contact,
-            beneficiary2Relation: customer.beneficiary2Relation,
-            beneficiary2Percentage: customer.beneficiary2Percentage,
-            beneficiary3Name: customer.beneficiary3Name,
-            beneficiary3Contact: customer.beneficiary3Contact,
-            beneficiary3Relation: customer.beneficiary3Relation,
-            beneficiary3Percentage: customer.beneficiary3Percentage,
-            identificationType: customer.identificationType,
-            identificationNumber: customer.identificationNumber,
-            photo: customer.photo,
-            signature: customer.signature,
-            createdBy: customer.createdBy
-        };
+        const formattedCustomer = formatCustomerResponse(customer);
         res.json(formattedCustomer);
     }
     catch (error) {
@@ -480,7 +452,6 @@ const deleteCustomer = async (req, res) => {
 exports.deleteCustomer = deleteCustomer;
 // Update KYC status
 const updateKYCStatus = async (req, res) => {
-    var _a;
     try {
         const { id } = req.params;
         const { kycStatus } = req.body;
@@ -505,46 +476,7 @@ const updateKYCStatus = async (req, res) => {
             }
         });
         // Format the response
-        const formattedCustomer = {
-            id: customer.id,
-            name: customer.name,
-            email: customer.email || '',
-            phone: customer.phone || customer.contactNumber || '',
-            address: customer.address || customer.residentialAddress || '',
-            kycStatus: customer.kycStatus.toLowerCase(),
-            dateJoined: customer.dateJoined.toISOString(),
-            accounts: customer.accounts,
-            // Include extended fields
-            firstName: customer.firstName,
-            surname: customer.surname,
-            otherName: customer.otherName,
-            gender: customer.gender,
-            dateOfBirth: (_a = customer.dateOfBirth) === null || _a === void 0 ? void 0 : _a.toISOString(),
-            occupation: customer.occupation,
-            workplace: customer.workplace,
-            maritalStatus: customer.maritalStatus,
-            residentialAddress: customer.residentialAddress,
-            postalAddress: customer.postalAddress,
-            contactNumber: customer.contactNumber,
-            city: customer.city,
-            beneficiaryName: customer.beneficiaryName,
-            beneficiaryContact: customer.beneficiaryContact,
-            beneficiaryRelation: customer.beneficiaryRelation,
-            beneficiaryPercentage: customer.beneficiaryPercentage,
-            beneficiary2Name: customer.beneficiary2Name,
-            beneficiary2Contact: customer.beneficiary2Contact,
-            beneficiary2Relation: customer.beneficiary2Relation,
-            beneficiary2Percentage: customer.beneficiary2Percentage,
-            beneficiary3Name: customer.beneficiary3Name,
-            beneficiary3Contact: customer.beneficiary3Contact,
-            beneficiary3Relation: customer.beneficiary3Relation,
-            beneficiary3Percentage: customer.beneficiary3Percentage,
-            identificationType: customer.identificationType,
-            identificationNumber: customer.identificationNumber,
-            photo: customer.photo,
-            signature: customer.signature,
-            createdBy: customer.createdBy
-        };
+        const formattedCustomer = formatCustomerResponse(customer);
         res.json(formattedCustomer);
     }
     catch (error) {
@@ -557,3 +489,60 @@ const updateKYCStatus = async (req, res) => {
     }
 };
 exports.updateKYCStatus = updateKYCStatus;
+const hideCustomersWithoutAccounts = async (req, res) => {
+    try {
+        const result = await prisma.customer.updateMany({
+            where: {
+                isHidden: false,
+                accounts: {
+                    none: {}
+                }
+            },
+            data: {
+                isHidden: true,
+                hiddenAt: new Date()
+            }
+        });
+        res.json({
+            message: 'Customers without accounts hidden successfully',
+            hiddenCount: result.count
+        });
+    }
+    catch (error) {
+        console.error('Error hiding customers without accounts:', error);
+        res.status(500).json({ error: 'Failed to hide customers without accounts' });
+    }
+};
+exports.hideCustomersWithoutAccounts = hideCustomersWithoutAccounts;
+const unhideCustomer = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const customer = await prisma.customer.update({
+            where: { id },
+            data: {
+                isHidden: false,
+                hiddenAt: null
+            },
+            include: {
+                accounts: true,
+                createdBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        username: true
+                    }
+                }
+            }
+        });
+        res.json(formatCustomerResponse(customer));
+    }
+    catch (error) {
+        console.error('Error unhiding customer:', error);
+        if (error instanceof Error && error.message.includes('Record to update not found')) {
+            res.status(404).json({ error: 'Customer not found' });
+            return;
+        }
+        res.status(500).json({ error: 'Failed to unhide customer' });
+    }
+};
+exports.unhideCustomer = unhideCustomer;

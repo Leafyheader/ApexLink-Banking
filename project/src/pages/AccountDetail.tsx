@@ -285,6 +285,14 @@ const AccountDetail: React.FC = () => {
               <h4 className="text-sm font-medium text-gray-500 mb-2">Ledger Balance</h4>
               <p className="text-2xl font-bold text-purple-600">{formatCurrency(account.ledgerBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
+            <div className="bg-indigo-50 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Shares Balance</h4>
+              <p className="text-2xl font-bold text-indigo-600">{formatCurrency(account.shareBalance || 0, 'GHS', 'en-GH', 2)}</p>
+            </div>
+            <div className="bg-cyan-50 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 mb-2">Shares Available Balance</h4>
+              <p className="text-2xl font-bold text-cyan-600">{formatCurrency(account.sharesAvailableBalance || 0, 'GHS', 'en-GH', 2)}</p>
+            </div>
             {account.overdraftLimit && account.overdraftLimit > 0 && (
               <div>
                 <h4 className="text-sm font-medium text-gray-500 mb-2">Overdraft Limit</h4>

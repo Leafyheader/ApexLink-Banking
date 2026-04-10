@@ -160,18 +160,19 @@ const rejectOrReverseAccount = async (req, res) => {
             return;
         }
         const { id } = req.params;
-        const { reason } = req.body;
+        const { reason } = req.body || {};
         // Check if account exists
         const existingAccount = await prisma.account.findUnique({ where: { id } });
         if (!existingAccount) {
             res.status(404).json({ message: 'Account not found' });
             return;
         }
-        // Update account status to PENDING (reversal) or REJECTED
+        // Update account status to PENDING (reversal)
         const account = await prisma.account.update({
             where: { id },
             data: {
                 authorizationStatus: 'PENDING',
+                status: 'ACTIVE', // Keep account active but pending authorization
                 approvedById: null, // Remove approver
                 updatedAt: new Date()
             },
@@ -183,6 +184,13 @@ const rejectOrReverseAccount = async (req, res) => {
                         email: true,
                         phone: true
                     }
+                },
+                approvedBy: {
+                    select: {
+                        id: true,
+                        name: true,
+                        username: true
+                    }
                 }
             }
         });
@@ -190,7 +198,8 @@ const rejectOrReverseAccount = async (req, res) => {
     }
     catch (error) {
         console.error('Error rejecting/reversing account:', error);
-        res.status(500).json({ message: 'Failed to reject/reverse account' });
+        console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace available');
+        res.status(500).json({ message: 'Failed to reject/reverse account', error: error instanceof Error ? error.message : 'Unknown error' });
     }
 };
 exports.rejectOrReverseAccount = rejectOrReverseAccount;

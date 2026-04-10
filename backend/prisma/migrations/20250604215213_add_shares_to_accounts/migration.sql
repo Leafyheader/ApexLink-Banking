@@ -1,3 +1,0 @@
--- AlterTable
-ALTER TABLE `account` ADD COLUMN `shares` DECIMAL(65, 30) NULL DEFAULT 0,
-    ADD COLUMN `sharesBalance` DECIMAL(65, 30) NULL DEFAULT 0;

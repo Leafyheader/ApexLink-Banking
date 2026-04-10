@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import axios from 'axios';
 import api, { handleApiError } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 
@@ -49,16 +50,20 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       try {
         const response = await api.get('/auth/validate');
         setUser(response.data.user);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('Token validation error:', error);
         localStorage.removeItem('token');
+        // If it's a 401 or 403 error, redirect to login
+        if (axios.isAxiosError(error) && (error.response?.status === 401 || error.response?.status === 403)) {
+          navigate('/login');
+        }
       } finally {
         setIsLoading(false);
       }
     };
 
     validateToken();
-  }, []);
+  }, [navigate]);
   const login = async (username: string, password: string): Promise<boolean> => {
     try {
       const response = await api.post('/auth/login', { username, password });

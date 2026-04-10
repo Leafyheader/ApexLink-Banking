@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, Search, X, Filter, Download, Eye, Edit, Trash2, ArrowLeftRight, ArrowUpCircle, ArrowDownCircle, AlertCircle } from 'lucide-react';
+import axios from 'axios';
+import { Plus, Search, X, Filter, Download, Eye, Edit, ArrowLeftRight, ArrowUpCircle, ArrowDownCircle, AlertCircle } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
@@ -166,22 +167,6 @@ const Transactions: React.FC = () => {
     loadData();
   }, [loadData]);
 
-  const handleDeleteTransaction = async (transactionId: string) => {
-    if (window.confirm('Are you sure you want to delete this transaction?')) {
-      try {
-        setIsLoading(true);
-        setError(null);
-        await api.delete(`/transactions/${transactionId}`);
-        setTransactions(transactions.filter(t => t.id !== transactionId));
-      } catch (err) {
-        console.error('Error deleting transaction:', err);
-        setError('Failed to delete transaction. Please try again.');
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
   // Handle search with server-side filtering
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchInput(e.target.value);
@@ -225,6 +210,8 @@ const Transactions: React.FC = () => {
     switch (type) {
       case 'deposit':
         return 'primary';
+      case 'deposit-shares':
+        return 'primary';
       case 'withdrawal':
         return 'secondary';
       case 'transfer':
@@ -245,6 +232,8 @@ const Transactions: React.FC = () => {
     switch (type) {
       case 'deposit':
         return <ArrowUpCircle size={16} className="text-green-600" />;
+      case 'deposit-shares':
+        return <ArrowUpCircle size={16} className="text-purple-600" />;
       case 'withdrawal':
         return <ArrowDownCircle size={16} className="text-red-600" />;
       case 'transfer':
@@ -262,6 +251,11 @@ const Transactions: React.FC = () => {
       case 'deposit':
         return {
           color: 'text-green-600',
+          sign: '+',
+        };
+      case 'deposit-shares':
+        return {
+          color: 'text-purple-600',
           sign: '+',
         };
       case 'withdrawal':
@@ -357,13 +351,27 @@ const Transactions: React.FC = () => {
         return;
       }
 
-      // For deposits and loan repayments, process immediately as before
-      const response = await api.post('/transactions', data);
-      setTransactions([response.data, ...transactions]);
+      // For deposits, loan repayments, and deposit-shares, process immediately as before
+      // Use the new ledger endpoint for deposits and deposit-shares, legacy endpoint for loan repayments
+      let response;
+      
+      if (data.type === 'loan-repayment') {
+        // Use legacy endpoint for loan repayments (complex logic)
+        response = await api.post('/transactions', data);
+      } else {
+        // Use new ledger endpoint for deposits and deposit-shares
+        response = await api.post('/transactions/ledger', data);
+      }
+      
+      setTransactions([response.data.transaction || response.data, ...transactions]);
       setIsAddModalOpen(false);
       
-      // Show success message with special handling for loan repayments
-      if (data.type === 'loan-repayment') {
+      // Show success message with special handling for different types
+      if (data.type === 'deposit') {
+        alert(`Deposit completed successfully! ✅\n\nAmount: ${formatCurrency(data.amount || 0, 'GHS', 'en-GH', 2)}\n\nThe deposit has been processed using our secure ledger system.`);
+      } else if (data.type === 'deposit-shares') {
+        alert(`Shares deposit completed successfully! ✅\n\nAmount: ${formatCurrency(data.amount || 0, 'GHS', 'en-GH', 2)}\n\nThe deposit has been added to the account's share balance.`);
+      } else if (data.type === 'loan-repayment') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const repaymentDetails = (response.data as any).repaymentDetails;
         if (repaymentDetails) {
@@ -407,14 +415,22 @@ const Transactions: React.FC = () => {
           }
         }
       } else {
-        alert(`${data.type?.charAt(0).toUpperCase()}${data.type?.slice(1)} transaction completed successfully!`);
+        // Generic success message for other transaction types
+        const transactionType = data.type || 'transaction';
+        alert(`${transactionType.charAt(0).toUpperCase()}${transactionType.slice(1)} completed successfully!`);
       }
       
       // Reload data to get updated stats and balances
       loadData();
     } catch (err) {
       console.error('Error creating transaction:', err);
-      setError('Failed to create transaction. Please try again.');
+      
+      // Check if it's an authentication error
+      if (axios.isAxiosError(err) && (err.response?.status === 401 || err.response?.status === 403)) {
+        setError('Your session has expired. Please log in again.');
+      } else {
+        setError('Failed to create transaction. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -603,7 +619,7 @@ const Transactions: React.FC = () => {
               }
               fullWidth
             />
-            
+
             <Select
               value={statusFilter}
               onChange={handleStatusFilter}
@@ -622,6 +638,7 @@ const Transactions: React.FC = () => {
               options={[
                 { value: '', label: 'All Types' },
                 { value: 'deposit', label: 'Deposits' },
+                { value: 'deposit-shares', label: 'Shares Deposits' },
                 { value: 'withdrawal', label: 'Withdrawals' },
                 { value: 'transfer', label: 'Transfers' },
                 { value: 'loan-repayment', label: 'Loan Repayments' },
@@ -707,7 +724,9 @@ const Transactions: React.FC = () => {
                     <Badge variant={getTypeVariant(transaction.type, transaction.description)}>
                       {transaction.description === 'withdrawal charge' 
                         ? 'Withdrawal Charge' 
-                        : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                        : transaction.type === 'deposit-shares'
+                          ? 'Shares Deposit'
+                          : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                     </Badge>
                   </TableCell>
                   <TableCell className={getAmountDisplay(transaction.type).color}>
@@ -744,15 +763,6 @@ const Transactions: React.FC = () => {
                         disabled={transaction.status === 'completed'}
                       >
                         Edit
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        leftIcon={<Trash2 size={16} />}
-                        onClick={() => handleDeleteTransaction(transaction.id)}
-                        disabled={transaction.status === 'completed'}
-                      >
-                        Delete
                       </Button>
                     </div>
                   </TableCell>
@@ -929,7 +939,9 @@ const Transactions: React.FC = () => {
                   <Badge variant={getTypeVariant(selectedTransaction.type, selectedTransaction.description)}>
                     {selectedTransaction.description === 'withdrawal charge' 
                       ? 'Withdrawal Charge' 
-                      : selectedTransaction.type.charAt(0).toUpperCase() + selectedTransaction.type.slice(1)}
+                      : selectedTransaction.type === 'deposit-shares'
+                        ? 'Shares Deposit'
+                        : selectedTransaction.type.charAt(0).toUpperCase() + selectedTransaction.type.slice(1)}
                   </Badge>
                 </div>
               </div>

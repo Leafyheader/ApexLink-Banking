@@ -164,6 +164,9 @@ const getAccountAnalytics = async (req, res) => {
         const { dateFrom, dateTo } = req.query;
         const endDate = dateTo ? new Date(dateTo) : new Date();
         const startDate = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const periodMs = Math.max(24 * 60 * 60 * 1000, endDate.getTime() - startDate.getTime());
+        const previousEndDate = new Date(startDate.getTime() - 1);
+        const previousStartDate = new Date(previousEndDate.getTime() - periodMs);
         // Get account distribution by type
         const accountsByType = await prisma.account.groupBy({
             by: ['type'],
@@ -180,13 +183,36 @@ const getAccountAnalytics = async (req, res) => {
                 status: 'ACTIVE',
             },
         });
-        // Calculate growth rates (mock calculation - in real system, compare with previous period)
+        const previousAccountsByType = await prisma.account.groupBy({
+            by: ['type'],
+            _sum: {
+                balance: true,
+            },
+            where: {
+                status: 'ACTIVE',
+                createdAt: {
+                    gte: previousStartDate,
+                    lte: previousEndDate,
+                },
+            },
+        });
+        const previousTotalsByType = new Map();
+        previousAccountsByType.forEach((row) => {
+            previousTotalsByType.set(row.type, Number(row._sum.balance || 0));
+        });
         const accountAnalytics = accountsByType.map((account) => ({
             accountType: account.type,
             count: account._count.id,
             totalBalance: Number(account._sum.balance || 0),
             averageBalance: Number(account._avg.balance || 0),
-            growthRate: Math.random() * 20, // Mock growth rate - replace with actual calculation
+            growthRate: (() => {
+                const current = Number(account._sum.balance || 0);
+                const previous = previousTotalsByType.get(account.type) || 0;
+                if (previous > 0) {
+                    return ((current - previous) / previous) * 100;
+                }
+                return current > 0 ? 100 : 0;
+            })(),
         }));
         res.json(accountAnalytics);
     }
@@ -322,25 +348,24 @@ const getCustomerMetrics = async (req, res) => {
         // Average accounts per customer
         const totalAccounts = await prisma.account.count();
         const averageAccountsPerCustomer = totalCustomers > 0 ? totalAccounts / totalCustomers : 0;
-        // Top customers by balance
-        const topCustomers = await prisma.customer.findMany({
-            include: {
-                accounts: {
-                    select: {
-                        balance: true,
-                    },
-                },
-            },
-            take: 10,
-        });
-        const topCustomersByBalance = topCustomers
-            .map((customer) => ({
-            name: customer.name,
-            totalBalance: customer.accounts.reduce((sum, account) => sum + Number(account.balance), 0),
-            accountCount: customer.accounts.length,
-        }))
-            .sort((a, b) => b.totalBalance - a.totalBalance)
-            .slice(0, 5);
+        // True top customers by combined account balance + share balance.
+        const topCustomersByBalanceRaw = await prisma.$queryRaw `
+      SELECT
+        c.id AS customerId,
+        c.name AS name,
+        CAST(SUM(COALESCE(a.balance, 0) + COALESCE(a.shareBalance, 0)) AS DECIMAL(18,2)) AS totalBalance,
+        COUNT(a.id) AS accountCount
+      FROM Customer c
+      JOIN Account a ON a.customerId = c.id
+      GROUP BY c.id, c.name
+      ORDER BY totalBalance DESC
+      LIMIT 5
+    `;
+        const topCustomersByBalance = topCustomersByBalanceRaw.map((row) => ({
+            name: row.name,
+            totalBalance: Number(row.totalBalance || 0),
+            accountCount: Number(row.accountCount || 0),
+        }));
         const customerMetrics = {
             totalCustomers,
             activeCustomers,

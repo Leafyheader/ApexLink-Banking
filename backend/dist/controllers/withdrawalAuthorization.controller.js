@@ -167,30 +167,42 @@ const approveWithdrawalAuthorization = async (req, res) => {
         if (withdrawalAuth.status !== 'PENDING') {
             return res.status(400).json({ error: 'Withdrawal authorization is not pending' });
         }
-        // Check if account has sufficient balance
-        if (Number(withdrawalAuth.account.balance) < Number(withdrawalAuth.amount)) {
-            return res.status(400).json({ error: 'Insufficient account balance' });
+        // Check available balance considering loan guarantees
+        const { SimpleLoanService } = require('../services/simple-loan.service');
+        const loanService = new SimpleLoanService(prisma);
+        const availableForWithdrawal = await loanService.getAvailableBalanceForWithdrawal(withdrawalAuth.accountId);
+        const chargeAmount = withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL ? 5.00 : 0;
+        const totalRequired = Number(withdrawalAuth.amount) + chargeAmount;
+        if (totalRequired > availableForWithdrawal) {
+            const currentBalance = Number(withdrawalAuth.account.balance);
+            const restrictedAmount = currentBalance - availableForWithdrawal;
+            return res.status(400).json({
+                error: `Insufficient available balance. Account Balance: ${currentBalance}, Available: ${availableForWithdrawal}, Requested: ${withdrawalAuth.amount}, Charges: ${chargeAmount}` +
+                    (restrictedAmount > 0 ? `. ${restrictedAmount} is restricted due to loan guarantees.` : '')
+            });
         }
         // Start transaction
-        await prisma.$transaction(async (tx) => {
+        const approvalResult = await prisma.$transaction(async (tx) => {
+            const operationReference = withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`;
             await tx.withdrawalAuthorization.update({
                 where: { id },
                 data: {
                     status: client_1.WithdrawalAuthorizationStatus.APPROVED,
                     approvedById: userId,
-                    approvedAt: new Date()
+                    approvedAt: new Date(),
+                    reference: operationReference
                 }
             });
-            // Update account balance
+            const totalDebit = Number(withdrawalAuth.amount) + chargeAmount;
             await tx.account.update({
                 where: { id: withdrawalAuth.accountId },
                 data: {
                     balance: {
-                        decrement: withdrawalAuth.amount
+                        decrement: totalDebit
                     },
                     lastTransactionDate: new Date()
                 }
-            }); // Create transaction record
+            });
             const mainTransaction = await tx.transaction.create({
                 data: {
                     type: withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL ? client_1.TransactionType.WITHDRAWAL : client_1.TransactionType.TRANSFER,
@@ -198,38 +210,58 @@ const approveWithdrawalAuthorization = async (req, res) => {
                     status: 'COMPLETED',
                     description: withdrawalAuth.description || `${withdrawalAuth.type} approved`,
                     accountId: withdrawalAuth.accountId,
-                    reference: withdrawalAuth.reference
+                    reference: operationReference
+                }
+            });
+            await tx.ledgerEntry.create({
+                data: {
+                    accountId: withdrawalAuth.accountId,
+                    type: 'DEBIT',
+                    amount: withdrawalAuth.amount,
+                    currency: 'GHS',
+                    reference: operationReference,
+                    description: withdrawalAuth.description || `${withdrawalAuth.type} approved`,
+                    transactionId: mainTransaction.id,
+                    createdBy: userId
                 }
             });
             // For withdrawals, add the 5 cedis withdrawal charge
+            let chargeTransactionId = null;
             if (withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL) {
                 const withdrawalCharge = 5.00;
-                // Deduct charge from account
-                await tx.account.update({
-                    where: { id: withdrawalAuth.accountId },
-                    data: {
-                        balance: {
-                            decrement: withdrawalCharge
-                        }
-                    }
-                }); // Create charge transaction record
-                await tx.transaction.create({
+                const chargeTransaction = await tx.transaction.create({
                     data: {
                         type: client_1.TransactionType.WITHDRAWAL,
                         amount: withdrawalCharge,
                         status: 'COMPLETED',
                         description: 'withdrawal charge',
                         accountId: withdrawalAuth.accountId,
-                        reference: `CHG-${withdrawalAuth.reference || mainTransaction.id}`
+                        reference: `CHG-${operationReference}`
+                    }
+                });
+                chargeTransactionId = chargeTransaction.id;
+                await tx.ledgerEntry.create({
+                    data: {
+                        accountId: withdrawalAuth.accountId,
+                        type: 'DEBIT',
+                        amount: withdrawalCharge,
+                        currency: 'GHS',
+                        reference: `CHG-${operationReference}`,
+                        description: 'withdrawal charge',
+                        transactionId: chargeTransaction.id,
+                        createdBy: userId
                     }
                 });
             }
+            return {
+                mainTransactionId: mainTransaction.id,
+                chargeTransactionId
+            };
         });
         // Record withdrawal charge as bank income (outside transaction to avoid issues)
         if (withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL) {
             try {
-                await bankIncome_service_1.BankIncomeService.recordWithdrawalCharge(id, // use withdrawal auth id as source
-                withdrawalAuth.accountId, withdrawalAuth.account.customerId, 5.00);
+                await bankIncome_service_1.BankIncomeService.recordWithdrawalCharge(approvalResult.mainTransactionId, withdrawalAuth.accountId, withdrawalAuth.account.customerId, 5.00);
             }
             catch (error) {
                 console.error('Error recording withdrawal charge as income:', error);
@@ -402,47 +434,67 @@ const reverseWithdrawalAuthorization = async (req, res) => {
                     reversalReason: reason || 'No reason provided'
                 }
             });
-            // Add the withdrawn amount back to the account
+            const chargeAmount = withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL ? 5.00 : 0;
+            const totalCredit = Number(withdrawalAuth.amount) + chargeAmount;
+            // Add the withdrawn amount (and fee where applicable) back to the account
             await tx.account.update({
                 where: { id: withdrawalAuth.accountId },
                 data: {
                     balance: {
-                        increment: withdrawalAuth.amount
+                        increment: totalCredit
                     },
                     lastTransactionDate: new Date()
                 }
             });
             // Create reversal transaction record
-            await tx.transaction.create({
+            const mainReversalReference = `REV-${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}`;
+            const reversalMainTransaction = await tx.transaction.create({
                 data: {
                     type: client_1.TransactionType.DEPOSIT,
                     amount: withdrawalAuth.amount,
                     status: 'COMPLETED',
                     description: `Reversal: ${withdrawalAuth.description || withdrawalAuth.type} (${reason || 'No reason provided'})`,
                     accountId: withdrawalAuth.accountId,
-                    reference: `REV-${withdrawalAuth.reference || withdrawalAuth.id}`
+                    reference: mainReversalReference
+                }
+            });
+            await tx.ledgerEntry.create({
+                data: {
+                    accountId: withdrawalAuth.accountId,
+                    type: 'CREDIT',
+                    amount: withdrawalAuth.amount,
+                    currency: 'GHS',
+                    reference: mainReversalReference,
+                    description: `Reversal: ${withdrawalAuth.description || withdrawalAuth.type}`,
+                    transactionId: reversalMainTransaction.id,
+                    createdBy: userId
                 }
             });
             // For withdrawals, also reverse the withdrawal charge
             if (withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL) {
                 const withdrawalCharge = 5.00;
-                // Add charge back to account
-                await tx.account.update({
-                    where: { id: withdrawalAuth.accountId },
-                    data: {
-                        balance: {
-                            increment: withdrawalCharge
-                        }
-                    }
-                }); // Create charge reversal transaction record
-                await tx.transaction.create({
+                // Create charge reversal transaction record
+                const chargeReversalReference = `REV-CHG-${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}`;
+                const chargeReversalTransaction = await tx.transaction.create({
                     data: {
                         type: client_1.TransactionType.DEPOSIT,
                         amount: withdrawalCharge,
                         status: 'COMPLETED',
                         description: 'Reversal: withdrawal charge',
                         accountId: withdrawalAuth.accountId,
-                        reference: `REV-CHG-${withdrawalAuth.reference || withdrawalAuth.id}`
+                        reference: chargeReversalReference
+                    }
+                });
+                await tx.ledgerEntry.create({
+                    data: {
+                        accountId: withdrawalAuth.accountId,
+                        type: 'CREDIT',
+                        amount: withdrawalCharge,
+                        currency: 'GHS',
+                        reference: chargeReversalReference,
+                        description: 'Reversal: withdrawal charge',
+                        transactionId: chargeReversalTransaction.id,
+                        createdBy: userId
                     }
                 });
             }
@@ -450,8 +502,20 @@ const reverseWithdrawalAuthorization = async (req, res) => {
         // Reverse withdrawal charge from bank income (outside transaction to avoid issues)
         if (withdrawalAuth.type === client_1.WithdrawalType.WITHDRAWAL) {
             try {
-                await bankIncome_service_1.BankIncomeService.reverseWithdrawalCharge(id, // use withdrawal auth id as source
-                5.00);
+                const originalMainTx = await prisma.transaction.findFirst({
+                    where: {
+                        accountId: withdrawalAuth.accountId,
+                        type: client_1.TransactionType.WITHDRAWAL,
+                        reference: withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`,
+                        status: 'COMPLETED'
+                    },
+                    orderBy: {
+                        createdAt: 'asc'
+                    }
+                });
+                if (originalMainTx) {
+                    await bankIncome_service_1.BankIncomeService.reverseWithdrawalCharge(originalMainTx.id, 5.00);
+                }
             }
             catch (error) {
                 console.error('Error reversing withdrawal charge from income:', error);

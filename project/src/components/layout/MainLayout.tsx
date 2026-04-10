@@ -6,6 +6,7 @@ import {
   CreditCard,
   ArrowLeftRight,
   Landmark,
+  ShieldCheck,
   FileText,
   Settings,
   Menu,
@@ -34,7 +35,7 @@ const MainLayout: React.FC = () => {
   });
   
   const location = useLocation();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   useEffect(() => {
     if (isDarkMode) {
@@ -62,11 +63,13 @@ const MainLayout: React.FC = () => {
     { name: 'Withdrawal Authorization', path: '/withdrawal-authorizations', icon: <ArrowLeftRight size={20} /> },
     { name: 'Transactions', path: '/transactions', icon: <ArrowLeftRight size={20} /> },
     { name: 'Loans', path: '/loans', icon: <Landmark size={20} /> },
+    { name: 'Loan Authorization', path: '/loan-authorizations', icon: <Landmark size={20} /> },
     { name: 'Bank Income', path: '/bank-income', icon: <PiggyBank size={20} /> },
     { name: 'Expenses', path: '/expenses', icon: <Receipt size={20} /> },
     { name: 'Expense Approval', path: '/expense-approval', icon: <Receipt size={20} /> },
     { name: 'User Management', path: '/users', icon: <UserCheck size={20} /> },
     { name: 'Reports', path: '/reports', icon: <FileText size={20} /> },
+    { name: 'Audit Trail', path: '/audit', icon: <ShieldCheck size={20} /> },
     { name: 'Settings', path: '/settings', icon: <Settings size={20} /> },
   ];
 
@@ -164,18 +167,16 @@ const MainLayout: React.FC = () => {
             <div className="flex flex-shrink-0 p-4 border-t border-light-border dark:border-dark-border">
               <div className="flex items-center">
                 <div>
-                  <img
-                    className="inline-block w-10 h-10 rounded-full"
-                    src="https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg?auto=compress&cs=tinysrgb&w=48"
-                    alt="User avatar"
-                  />
+                  <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200 font-semibold">
+                    {(user?.username?.charAt(0) || 'U').toUpperCase()}
+                  </div>
                 </div>
                 <div className="ml-3">
                   <p className="text-sm font-medium text-light-text dark:text-dark-text">
-                    John Smith
+                    {user?.username || 'Unknown User'}
                   </p>
                   <p className="text-xs font-medium text-gray-500 dark:text-gray-400">
-                    Bank Manager
+                    {user?.role || 'Unknown Role'}
                   </p>
                 </div>
               </div>

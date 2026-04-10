@@ -31,6 +31,8 @@ model Customer {
   id                String    @id @default(uuid())
   customerNumber    String    @unique  // Human-readable customer ID like CUST000000001
   name              String
+  isHidden          Boolean   @default(false)
+  hiddenAt          DateTime?
   email             String?   @unique
   phone             String?
   address           String?
@@ -68,9 +70,7 @@ model Customer {
   createdById     String
   accounts        Account[]
   loans           Loan[]
-  guarantor1Loans Loan[]    @relation("Guarantor1")
-  guarantor2Loans Loan[]    @relation("Guarantor2")
-  guarantor3Loans Loan[]    @relation("Guarantor3")
+  loanGuarantees  LoanGuarantor[] @relation("LoanGuarantor")
   incomeRecords   BankIncome[] @relation("IncomeCustomer")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -82,7 +82,7 @@ model Account {
   type            AccountType
   status          AccountStatus @default(ACTIVE)
   authorizationStatus AccountAuthorizationStatus @default(PENDING)
-  balance         Decimal   @default(0)
+  balance         Decimal   @default(0) // Legacy field - will be calculated from ledger
   currency        String    @default("USD")
   customerId      String
   customer        Customer  @relation(fields: [customerId], references: [id])
@@ -90,16 +90,18 @@ model Account {
   lastTransactionDate DateTime?
   minimumBalance  Decimal?
   overdraftLimit  Decimal?
-  shareBalance    Decimal?  @default(0)
+  shareBalance    Decimal?  @default(0) // Legacy field - will be calculated from ledger
   sharesAvailableBalance Decimal? @default(0)
   approvedBy      User?     @relation("ApprovedBy", fields: [approvedById], references: [id])
   approvedById    String?
   transactions    Transaction[]
+  ledgerEntries   LedgerEntry[]
+  pendingTransactions PendingTransaction[]
+  balanceSnapshot AccountBalanceSnapshot?
   withdrawalAuthorizations WithdrawalAuthorization[] @relation("WithdrawalAccount")
   loan            Loan?
-  guarantor1Loans Loan[] @relation("Guarantor1Account")
-  guarantor2Loans Loan[] @relation("Guarantor2Account")
-  guarantor3Loans Loan[] @relation("Guarantor3Account")
+  guarantorLoans  LoanGuarantor[] @relation("GuarantorAccount")
+  restrictions    AccountRestriction[] @relation("RestrictedAccount")
   incomeRecords   BankIncome[] @relation("IncomeAccount")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
@@ -114,6 +116,7 @@ model Transaction {
   description     String?
   accountId       String
   account         Account   @relation(fields: [accountId], references: [id])
+  ledgerEntries   LedgerEntry[]
   reference       String?   @unique
   date           DateTime  @default(now())
   createdAt       DateTime  @default(now())
@@ -157,6 +160,7 @@ model Loan {
   interestRate      Decimal
   term              Int       // in months
   status            LoanStatus @default(ACTIVE)
+  authorizationStatus LoanAuthorizationStatus @default(PENDING)
   repaymentFrequency RepaymentFrequency @default(MONTHLY)
   startDate         DateTime  @default(now())
   endDate           DateTime
@@ -165,35 +169,25 @@ model Loan {
   outstandingBalance Decimal
   nextPaymentDate   DateTime?
   monthlyPayment    Decimal
+  rejectionReason   String?   // Reason for rejection if authorization status is REJECTED
   
-  // New loan repayment tracking fields
-  totalPaid         Decimal   @default(0)
-  totalInterestPaid Decimal   @default(0)
-  guarantorReimbursed Decimal @default(0)
-  principalRemaining Decimal  @default(1000)
-  isCompleted       Boolean   @default(false)
-  lastPaymentDate   DateTime?
-  lastPaymentAmount Decimal   @default(0)
+  // Enhanced loan fields
+  customerContribution Decimal   // Amount from customer's own account
+  guaranteeRequired    Decimal   // Amount that needs guarantor backing
+  totalPaid           Decimal   @default(0)
+  totalInterestPaid   Decimal   @default(0)
+  guarantorReimbursed Decimal   @default(0)
+  principalRemaining  Decimal   
+  isCompleted         Boolean   @default(false)
+  lastPaymentDate     DateTime?
+  lastPaymentAmount   Decimal   @default(0)
   
-  guarantor1Id      String?
-  guarantor1        Customer? @relation("Guarantor1", fields: [guarantor1Id], references: [id])
-  guarantor1AccountId String?
-  guarantor1Account Account? @relation("Guarantor1Account", fields: [guarantor1AccountId], references: [id])
-  guarantor1Percentage Int?
-  guarantor2Id      String?
-  guarantor2        Customer? @relation("Guarantor2", fields: [guarantor2Id], references: [id])
-  guarantor2AccountId String?
-  guarantor2Account Account? @relation("Guarantor2Account", fields: [guarantor2AccountId], references: [id])
-  guarantor2Percentage Int?
-  guarantor3Id      String?
-  guarantor3        Customer? @relation("Guarantor3", fields: [guarantor3Id], references: [id])
-  guarantor3AccountId String?
-  guarantor3Account Account? @relation("Guarantor3Account", fields: [guarantor3AccountId], references: [id])
-  guarantor3Percentage Int?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-  createdBy         String?   // ID of user who created the loan
-  approvedBy        User?     @relation("ApprovedLoan", fields: [approvedById], references: [id])
+  // Guarantor relationships with amounts
+  guarantors          LoanGuarantor[]
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  createdBy          String?   // ID of user who created the loan
+  approvedBy         User?     @relation("ApprovedLoan", fields: [approvedById], references: [id])
   approvedById      String?
   approvedAt        DateTime?
 }
@@ -270,6 +264,7 @@ enum AccountAuthorizationStatus {
 
 enum TransactionType {
   DEPOSIT
+  DEPOSIT_SHARES
   WITHDRAWAL
   TRANSFER
   LOAN_REPAYMENT
@@ -299,6 +294,12 @@ enum LoanStatus {
   CLOSED
 }
 
+enum LoanAuthorizationStatus {
+  APPROVED
+  PENDING
+  REJECTED
+}
+
 enum RepaymentFrequency {
   MONTHLY
   QUARTERLY
@@ -317,4 +318,160 @@ enum ExpenseStatus {
   APPROVED
   PAID
   REJECTED
+}
+
+// Ledger-based double-entry system models
+model LedgerEntry {
+  id            String    @id @default(uuid())
+  accountId     String
+  account       Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  type          LedgerEntryType
+  amount        Decimal
+  currency      String    @default("GHS")
+  reference     String
+  description   String?
+  transactionId String?
+  transaction   Transaction? @relation(fields: [transactionId], references: [id])
+  metadata      Json?
+  createdAt     DateTime  @default(now())
+  createdBy     String?
+
+  @@index([accountId, createdAt])
+  @@index([reference])
+  @@index([transactionId])
+  @@index([type])
+}
+
+model PendingTransaction {
+  id          String    @id @default(uuid())
+  accountId   String
+  account     Account   @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  type        PendingTransactionType
+  amount      Decimal
+  currency    String    @default("GHS")
+  reference   String
+  description String?
+  expiresAt   DateTime?
+  metadata    Json?
+  status      PendingTransactionStatus @default(ACTIVE)
+  createdAt   DateTime  @default(now())
+  settledAt   DateTime?
+  createdBy   String?
+
+  @@index([accountId, status])
+  @@index([reference])
+  @@index([expiresAt])
+}
+
+model AccountBalanceSnapshot {
+  id                  String    @id @default(uuid())
+  accountId           String    @unique
+  account             Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  balance             Decimal   @default(0)      // Legacy balance for migration
+  shareBalance        Decimal   @default(0)      // Legacy share balance for migration
+  ledgerBalance       Decimal   @default(0)      // Calculated from ledger entries
+  pendingBalance      Decimal   @default(0)      // Sum of pending transactions
+  availableBalance    Decimal   @default(0)      // ledgerBalance - pendingBalance
+  lastLedgerEntryId   String?
+  snapshotAt          DateTime  @default(now())
+
+  @@index([snapshotAt])
+}
+
+// Enums for the ledger system
+enum LedgerEntryType {
+  CREDIT
+  DEBIT
+}
+
+enum PendingTransactionType {
+  HOLD
+  RESERVE
+}
+
+enum PendingTransactionStatus {
+  ACTIVE
+  SETTLED
+  RELEASED
+  EXPIRED
+}
+
+// New models for enhanced loan guarantee system
+model LoanGuarantor {
+  id                String    @id @default(uuid())
+  loanId            String
+  loan              Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  guarantorId       String
+  guarantor         Customer  @relation("LoanGuarantor", fields: [guarantorId], references: [id])
+  guarantorAccountId String
+  guarantorAccount  Account   @relation("GuarantorAccount", fields: [guarantorAccountId], references: [id])
+  guaranteedAmount  Decimal
+  status           GuarantorStatus @default(ACTIVE)
+  restrictions     AccountRestriction[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@unique([loanId, guarantorId])
+  @@index([guarantorId])
+  @@index([loanId])
+}
+
+model AccountRestriction {
+  id                String         @id @default(uuid())
+  accountId         String
+  account           Account        @relation("RestrictedAccount", fields: [accountId], references: [id], onDelete: Cascade)
+  restrictionType   RestrictionType
+  restrictedAmount  Decimal        // Amount that cannot be withdrawn
+  reason           String
+  loanGuarantorId  String?
+  loanGuarantor    LoanGuarantor? @relation(fields: [loanGuarantorId], references: [id], onDelete: Cascade)
+  isActive         Boolean        @default(true)
+  createdAt        DateTime       @default(now())
+  releasedAt       DateTime?
+  createdBy        String?
+
+  @@index([accountId, isActive])
+  @@index([loanGuarantorId])
+}
+
+enum GuarantorStatus {
+  ACTIVE
+  RELEASED
+  DEFAULTED
+  FUNDS_RETURNED
+}
+
+enum RestrictionType {
+  LOAN_GUARANTEE
+  COURT_ORDER
+  COMPLIANCE_HOLD
+}
+
+// Immutable append-only audit event stream for compliance and forensic review
+model AuditEvent {
+  id          String   @id
+  eventType   String
+  entityType  String
+  entityId    String?
+  action      String
+  outcome     String
+  actorUserId String?
+  actorRole   String?
+  requestId   String?
+  method      String?
+  route       String?
+  reference   String?
+  ipAddress   String?
+  userAgent   String?  @db.VarChar(512)
+  beforeData  Json?
+  afterData   Json?
+  metadata    Json?
+  prevHash    String?  @db.Char(64)
+  eventHash   String   @unique @db.Char(64)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([entityType, entityId])
+  @@index([actorUserId, createdAt])
+  @@index([eventType, createdAt])
 }

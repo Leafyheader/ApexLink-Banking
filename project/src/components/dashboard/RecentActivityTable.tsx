@@ -31,6 +31,8 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
     switch (type) {
       case 'deposit':
         return 'primary';
+      case 'deposit-shares':
+        return 'primary';
       case 'withdrawal':
         return 'secondary';
       case 'transfer':
@@ -71,11 +73,13 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
                   <Badge variant={getTypeVariant(transaction.type, transaction.description)}>
                     {transaction.description === 'withdrawal charge' 
                       ? 'Withdrawal Charge' 
-                      : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                      : transaction.type === 'deposit-shares'
+                        ? 'Shares Deposit'
+                        : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                   </Badge>
                 </TableCell>
-                <TableCell className={transaction.type === 'deposit' ? 'text-green-600' : 'text-red-600'}>
-                  {transaction.type === 'deposit' ? '+' : '-'}{formatCurrency(transaction.amount, 'GHS', 'en-GH', 2)}
+                <TableCell className={transaction.type === 'deposit' || transaction.type === 'deposit-shares' ? 'text-green-600' : 'text-red-600'}>
+                  {transaction.type === 'deposit' || transaction.type === 'deposit-shares' ? '+' : '-'}{formatCurrency(transaction.amount, 'GHS', 'en-GH', 2)}
                 </TableCell>
                 <TableCell>
                   <Badge variant={getStatusVariant(transaction.status)}>

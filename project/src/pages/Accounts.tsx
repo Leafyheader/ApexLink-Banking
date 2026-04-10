@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Search, PlusCircle, Edit, Trash2, Eye, AlertCircle } from 'lucide-react';
+import { Search, PlusCircle, Edit, Trash2, Eye, AlertCircle, Upload, Download } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '../components/ui/Table';
@@ -10,6 +10,16 @@ import { Account, Customer } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 import api from '../lib/api';
 import Select from '../components/ui/Select';
+
+type FailedImportRow = {
+  rowNumber: number;
+  customerId: string;
+  accountName: string;
+  accountNumber: string;
+  savingsBalance: string;
+  sharesBalance: string;
+  error: string;
+};
 
 // Custom debounce hook
 const useDebounce = (value: string, delay: number) => {
@@ -50,9 +60,17 @@ const Accounts: React.FC = () => {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [currentAccount, setCurrentAccount] = useState<Account | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nextAccountNumber, setNextAccountNumber] = useState('ACC0000001');
+  const [isAccountNumberEditable, setIsAccountNumberEditable] = useState(false);
+  const [manualAccountNumber, setManualAccountNumber] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [showInitialBalances, setShowInitialBalances] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [isBulkActivating, setIsBulkActivating] = useState(false);
+  const [importSummary, setImportSummary] = useState<string | null>(null);
+  const [failedImportRows, setFailedImportRows] = useState<FailedImportRow[]>([]);
   
   // Customer search states
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -62,6 +80,7 @@ const Accounts: React.FC = () => {
   
   // Ref for customer dropdown
   const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const importFileInputRef = useRef<HTMLInputElement>(null);
   
   // Debounce customer search
   const debouncedCustomerSearch = useDebounce(customerSearchQuery, 300);
@@ -89,6 +108,7 @@ const Accounts: React.FC = () => {
       setError('Failed to load accounts. Please try again.');
     } finally {
       setIsLoading(false);
+      setHasLoadedOnce(true);
     }
   }, [currentPage, itemsPerPage, searchQuery]);
 
@@ -165,9 +185,335 @@ const Accounts: React.FC = () => {
     setNextAccountNumber(`ACC${nextNumber.toString().padStart(7, '0')}`);
   };
 
+  useEffect(() => {
+    if (!isAccountNumberEditable) {
+      setManualAccountNumber(nextAccountNumber);
+    }
+  }, [nextAccountNumber, isAccountNumberEditable]);
+
+  const normalizeHeader = (header: string): string =>
+    header.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const parseAmount = (value: string): number => {
+    const cleaned = String(value || '').replace(/[^0-9.-]/g, '');
+    const parsed = Number.parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const parseDelimitedLine = (line: string, delimiter: string): string[] => {
+    const values: string[] = [];
+    let current = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      const nextChar = i + 1 < line.length ? line[i + 1] : '';
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === delimiter && !inQuotes) {
+        values.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    values.push(current.trim());
+    return values;
+  };
+
+  const parseImportFile = async (file: File): Promise<{ headers: string[]; rows: string[][] }> => {
+    const fileName = file.name.toLowerCase();
+    const isExcel = fileName.endsWith('.xlsx') || fileName.endsWith('.xlxs');
+
+    if (isExcel) {
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array' });
+      const firstSheet = workbook.SheetNames[0];
+
+      if (!firstSheet) {
+        throw new Error('Workbook has no sheets');
+      }
+
+      const sheet = workbook.Sheets[firstSheet];
+      const matrix = XLSX.utils.sheet_to_json<(string | number | null)[]>(sheet, {
+        header: 1,
+        defval: '',
+      });
+
+      const normalizedRows = matrix
+        .map((row) => row.map((cell) => String(cell ?? '').trim()))
+        .filter((row) => row.some((cell) => cell.length > 0));
+
+      if (normalizedRows.length < 2) {
+        return { headers: [], rows: [] };
+      }
+
+      const headers = normalizedRows[0].map(normalizeHeader);
+      const rows = normalizedRows.slice(1);
+      return { headers, rows };
+    }
+
+    const fileText = await file.text();
+    const lines = fileText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    if (lines.length < 2) {
+      return { headers: [], rows: [] };
+    }
+
+    const delimiter = lines[0].includes('\t') ? '\t' : ',';
+    const headers = parseDelimitedLine(lines[0], delimiter).map(normalizeHeader);
+    const rows = lines.slice(1).map((line) => parseDelimitedLine(line, delimiter));
+
+    return { headers, rows };
+  };
+
+  const handleImportBalances = async (file: File) => {
+    try {
+      setIsImporting(true);
+      setError(null);
+      setImportSummary(null);
+      setFailedImportRows([]);
+
+      const { headers, rows } = await parseImportFile(file);
+
+      if (headers.length === 0 || rows.length === 0) {
+        setError('Import file must have headers and at least one data row.');
+        return;
+      }
+
+      const customerIdIndex = headers.findIndex((h) => ['customerid', 'customernumber', 'custid', 'custno', 'customercode'].includes(h));
+      const accountNameIndex = headers.findIndex((h) => ['accountname', 'name', 'customername'].includes(h));
+      const accountNumberIndex = headers.findIndex((h) => ['accountnumber', 'acctnumber', 'accountno', 'accno', 'acno'].includes(h));
+      const savingsBalanceIndex = headers.findIndex((h) => ['savingsbalance', 'balance', 'savings'].includes(h));
+      const sharesBalanceIndex = headers.findIndex((h) => ['sharesbalance', 'sharebalance', 'shares'].includes(h));
+
+      if (customerIdIndex === -1 || accountNameIndex === -1 || accountNumberIndex === -1 || savingsBalanceIndex === -1 || sharesBalanceIndex === -1) {
+        setError('Required columns missing. Include customer id, account name, account number, savings balance, and shares balance headers.');
+        return;
+      }
+
+      let created = 0;
+      let invalid = 0;
+      let skippedEmptyName = 0;
+      let skippedNotFoundMarker = 0;
+      let failedCreate = 0;
+      const rowErrors: string[] = [];
+      const failedRows: FailedImportRow[] = [];
+
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const rowNumber = i + 2;
+
+        const columnAValue = String(row[0] || '').trim().toUpperCase();
+        if (columnAValue.includes('NOT FOUND')) {
+          skippedNotFoundMarker++;
+          continue;
+        }
+
+        const customerIdRaw = (row[customerIdIndex] || '').trim();
+        const accountNameRaw = (row[accountNameIndex] || '').trim();
+        if (!accountNameRaw) {
+          skippedEmptyName++;
+          continue;
+        }
+
+        if (!customerIdRaw) {
+          invalid++;
+          const msg = 'missing customer id';
+          rowErrors.push(`Row ${rowNumber}: ${msg}`);
+          failedRows.push({
+            rowNumber,
+            customerId: customerIdRaw,
+            accountName: accountNameRaw,
+            accountNumber: String(row[accountNumberIndex] || '').trim(),
+            savingsBalance: String(row[savingsBalanceIndex] || ''),
+            sharesBalance: String(row[sharesBalanceIndex] || ''),
+            error: msg,
+          });
+          continue;
+        }
+
+        const accountNumberRaw = String(row[accountNumberIndex] || '');
+        if (!accountNumberRaw.trim()) {
+          invalid++;
+          const msg = 'missing account number';
+          rowErrors.push(`Row ${rowNumber}: ${msg}`);
+          failedRows.push({
+            rowNumber,
+            customerId: customerIdRaw,
+            accountName: accountNameRaw,
+            accountNumber: accountNumberRaw,
+            savingsBalance: String(row[savingsBalanceIndex] || ''),
+            sharesBalance: String(row[sharesBalanceIndex] || ''),
+            error: msg,
+          });
+          continue;
+        }
+
+        const savingsBalance = parseAmount(row[savingsBalanceIndex] || '0');
+        const sharesBalance = parseAmount(row[sharesBalanceIndex] || '0');
+
+        try {
+          await api.post('/accounts', {
+            customerId: customerIdRaw,
+            type: 'SAVINGS',
+            accountNumber: accountNumberRaw,
+            balance: savingsBalance,
+            shareBalance: sharesBalance,
+            sharesAvailableBalance: sharesBalance,
+            minimumBalance: 0,
+          });
+          created++;
+        } catch (createErr: unknown) {
+          failedCreate++;
+          const errorObj = createErr as { response?: { data?: unknown }; message?: string };
+          const backendError = errorObj?.response?.data as { message?: string; errors?: Array<{ msg?: string }> } | undefined;
+          console.error(`Import create failed at row ${rowNumber}`, {
+            rowNumber,
+            customerId: customerIdRaw,
+            accountName: accountNameRaw,
+            accountNumber: accountNumberRaw,
+            savingsBalance,
+            sharesBalance,
+            backendError,
+          });
+
+          const message = backendError?.message || backendError?.errors?.[0]?.msg || errorObj?.message || 'unknown error';
+          rowErrors.push(`Row ${rowNumber}: ${message}`);
+          failedRows.push({
+            rowNumber,
+            customerId: customerIdRaw,
+            accountName: accountNameRaw,
+            accountNumber: accountNumberRaw,
+            savingsBalance: String(row[savingsBalanceIndex] || ''),
+            sharesBalance: String(row[sharesBalanceIndex] || ''),
+            error: message,
+          });
+        }
+      }
+
+      await fetchAccounts();
+
+      const summary = `Import completed. Created: ${created}, Skipped NOT FOUND Marker: ${skippedNotFoundMarker}, Skipped Empty Name: ${skippedEmptyName}, Invalid Rows: ${invalid}, Failed Create: ${failedCreate}.`;
+      setImportSummary(summary);
+      setFailedImportRows(failedRows);
+
+      if (rowErrors.length > 0) {
+        setError(`${summary} ${rowErrors.slice(0, 5).join('; ')}${rowErrors.length > 5 ? '; ...' : ''}`);
+      }
+    } catch (err) {
+      console.error('Error importing balances:', err);
+      setError('Failed to import balances. Please verify the file format and try again.');
+    } finally {
+      setIsImporting(false);
+      if (importFileInputRef.current) {
+        importFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleDownloadFailedRows = async () => {
+    if (failedImportRows.length === 0) {
+      return;
+    }
+
+    try {
+      const XLSX = await import('xlsx');
+      const rows = failedImportRows.map((row) => ({
+        'Row Number': row.rowNumber,
+        'Customer ID': row.customerId,
+        'Account Name': row.accountName,
+        'Account Number': row.accountNumber,
+        'Savings Balance': row.savingsBalance,
+        'Shares Balance': row.sharesBalance,
+        Error: row.error,
+      }));
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.json_to_sheet(rows);
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'FailedRows');
+
+      const workbookArray = XLSX.write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      });
+
+      const blob = new Blob([workbookArray], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'account-import-failed-rows.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading failed import rows:', err);
+      setError('Failed to download failed rows file. Please try again.');
+    }
+  };
+
+  const onSelectImportFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    await handleImportBalances(file);
+  };
+
+  const handleDownloadTemplate = async () => {
+    try {
+      const XLSX = await import('xlsx');
+      const templateRows = [
+        ['Customer ID', 'Account Name', 'Account Number', 'Savings Balance', 'Shares Balance'],
+        ['CUST000000001', 'John Doe', 'AC0000001', '1000.00', '250.00'],
+      ];
+
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(templateRows);
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Balances');
+
+      const workbookArray = XLSX.write(workbook, {
+        bookType: 'xlsx',
+        type: 'array',
+      });
+
+      const blob = new Blob([workbookArray], {
+        type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      });
+
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'account-balance-import-template.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Error downloading template:', err);
+      setError('Failed to download template. Please try again.');
+    }
+  };
+
   const handleCreateAccount = async (accountData: {
     customerId: string;
     type: string;
+    accountNumber?: string;
     balance: number;
     shareBalance?: number;
     sharesAvailableBalance?: number;
@@ -218,6 +564,27 @@ const Accounts: React.FC = () => {
     }
   };
 
+  const handleBulkActivateAccounts = async () => {
+    const confirmActivate = window.confirm('Activate all non-active accounts?');
+    if (!confirmActivate) {
+      return;
+    }
+
+    try {
+      setIsBulkActivating(true);
+      setError(null);
+      const response = await api.post('/accounts/bulk-activate');
+      const activatedCount = Number(response.data?.activatedCount || 0);
+      setImportSummary(`Bulk activation completed. Activated accounts: ${activatedCount}.`);
+      await fetchAccounts();
+    } catch (err) {
+      console.error('Error bulk activating accounts:', err);
+      setError('Failed to bulk activate accounts. Please try again.');
+    } finally {
+      setIsBulkActivating(false);
+    }
+  };
+
   const handleCreateCustomer = async (name: string) => {
     try {
       const response = await api.post('/customers', { name });
@@ -263,7 +630,7 @@ const Accounts: React.FC = () => {
     setCurrentPage(1);
   };
 
-  if (isLoading) {
+  if (!hasLoadedOnce && isLoading) {
     return (
       <div className="flex justify-center items-center min-h-64">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -293,9 +660,51 @@ const Accounts: React.FC = () => {
             </select>
             <span className="text-sm text-gray-600">per page</span>
           </div>
-          <Button onClick={() => setIsAddModalOpen(true)} className="flex items-center gap-2">
+          <Button onClick={() => {
+            setIsAddModalOpen(true);
+            setIsAccountNumberEditable(false);
+            setManualAccountNumber(nextAccountNumber);
+          }} className="flex items-center gap-2">
             <PlusCircle className="w-5 h-5" />
             New Account
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void handleBulkActivateAccounts();
+            }}
+            className="flex items-center gap-2"
+            disabled={isBulkActivating}
+          >
+            {isBulkActivating ? 'Activating...' : 'Bulk Activate All'}
+          </Button>
+          <input
+            ref={importFileInputRef}
+            type="file"
+            accept=".csv,.txt,.xlsx,.xlxs"
+            className="hidden"
+            onChange={(event) => {
+              void onSelectImportFile(event);
+            }}
+          />
+          <Button
+            variant="outline"
+            onClick={() => importFileInputRef.current?.click()}
+            className="flex items-center gap-2"
+            disabled={isImporting}
+          >
+            <Upload className="w-5 h-5" />
+            {isImporting ? 'Importing...' : 'Import Balances'}
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              void handleDownloadTemplate();
+            }}
+            className="flex items-center gap-2"
+          >
+            <Download className="w-5 h-5" />
+            Download Template
           </Button>
         </div>
       </div>
@@ -312,6 +721,27 @@ const Accounts: React.FC = () => {
           >
             Retry
           </Button>
+        </div>
+      )}
+
+      {importSummary && !error && (
+        <div className="bg-green-50 border border-green-200 rounded-md p-4 text-green-700">
+          <div className="flex items-center justify-between gap-3">
+            <span>{importSummary}</span>
+            {failedImportRows.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  void handleDownloadFailedRows();
+                }}
+                className="flex items-center gap-2"
+              >
+                <Download className="w-4 h-4" />
+                Download Failed Rows
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -468,6 +898,8 @@ const Accounts: React.FC = () => {
           setSelectedCustomerId('');
           setCustomerSearchQuery('');
           setCustomerDropdownOpen(false);
+          setIsAccountNumberEditable(false);
+          setManualAccountNumber(nextAccountNumber);
         }}
         title="Create New Account"
         preventClickOutsideClose={true}
@@ -605,11 +1037,30 @@ const Accounts: React.FC = () => {
               <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700 mb-1">
                 Account Number
               </label>
+              <div className="flex items-center gap-2 mb-2">
+                <input
+                  id="toggleEditableAccountNumber"
+                  type="checkbox"
+                  checked={isAccountNumberEditable}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setIsAccountNumberEditable(checked);
+                    if (!checked) {
+                      setManualAccountNumber(nextAccountNumber);
+                    }
+                  }}
+                  className="h-4 w-4"
+                />
+                <label htmlFor="toggleEditableAccountNumber" className="text-sm text-gray-700">
+                  Edit account number manually
+                </label>
+              </div>
               <Input
                 id="accountNumber"
-                placeholder="Auto-generated account number"
-                defaultValue={nextAccountNumber}
-                disabled
+                placeholder="Account number"
+                value={manualAccountNumber}
+                onChange={(e) => setManualAccountNumber(e.target.value.toUpperCase())}
+                disabled={!isAccountNumberEditable}
                 fullWidth
               />
             </div>
@@ -631,32 +1082,58 @@ const Accounts: React.FC = () => {
               />
             </div>
             
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label htmlFor="initialBalance" className="block text-sm font-medium text-gray-700 mb-1">
-                  Initial Balance
-                </label>
-                <Input
-                  id="initialBalance"
-                  type="number"
-                  placeholder="0.00"
-                  defaultValue="0"
-                  fullWidth
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600">Initial Balances:</div>
+              <div className="flex items-center gap-2">
+                <label htmlFor="toggleInitialBalances" className="text-sm text-gray-700">Show initial balance fields</label>
+                <input
+                  id="toggleInitialBalances"
+                  type="checkbox"
+                  checked={showInitialBalances}
+                  onChange={(e) => setShowInitialBalances(e.target.checked)}
+                  className="h-4 w-4"
                 />
               </div>
-              
-              <div>
-                <label htmlFor="shareBalance" className="block text-sm font-medium text-gray-700 mb-1">
-                  Shares Initial Balance
-                </label>
-                <Input
-                  id="shareBalance"
-                  type="number"
-                  placeholder="0.00"
-                  defaultValue="0"
-                  fullWidth
-                />
-              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              {showInitialBalances ? (
+                <>
+                  <div>
+                    <label htmlFor="initialBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                      Initial Balance
+                    </label>
+                    <Input
+                      id="initialBalance"
+                      type="number"
+                      placeholder="0.00"
+                      defaultValue="0"
+                      fullWidth
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="shareBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                      Shares Initial Balance
+                    </label>
+                    <Input
+                      id="shareBalance"
+                      type="number"
+                      placeholder="0.00"
+                      defaultValue="0"
+                      fullWidth
+                    />
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <div className="text-sm text-gray-500">Initial Balance field is currently hidden</div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-gray-500">Shares Initial Balance field is currently hidden</div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
           
@@ -665,6 +1142,8 @@ const Accounts: React.FC = () => {
               setIsAddModalOpen(false);
               // Reset form state
               setSelectedCustomerId('');
+              setIsAccountNumberEditable(false);
+              setManualAccountNumber(nextAccountNumber);
             }}>
               Cancel
             </Button>
@@ -672,12 +1151,23 @@ const Accounts: React.FC = () => {
               // Get form values
               const customerId = selectedCustomerId;
               const typeValue = (document.getElementById('accountType') as HTMLSelectElement)?.value;
-              const balance = parseFloat((document.getElementById('initialBalance') as HTMLInputElement)?.value || '0');
-              const shareBalance = parseFloat((document.getElementById('shareBalance') as HTMLInputElement)?.value || '0');
+              const accountNumber = manualAccountNumber.trim();
+              // Read initial balances only if fields are shown, otherwise default to 0
+              let balance = 0;
+              let shareBalance = 0;
+              if (showInitialBalances) {
+                balance = parseFloat((document.getElementById('initialBalance') as HTMLInputElement)?.value || '0');
+                shareBalance = parseFloat((document.getElementById('shareBalance') as HTMLInputElement)?.value || '0');
+              }
               
               // Validate required fields
               if (!customerId) {
                 alert('Please select a customer');
+                return;
+              }
+
+              if (!accountNumber) {
+                alert('Account number is required.');
                 return;
               }
               
@@ -692,6 +1182,7 @@ const Accounts: React.FC = () => {
               const newAccount = {
                 customerId,
                 type: typeMapping[typeValue] || 'SAVINGS',
+                accountNumber,
                 balance,
                 shareBalance,
                 sharesAvailableBalance: shareBalance,
@@ -702,6 +1193,8 @@ const Accounts: React.FC = () => {
               
               // Reset form state  
               setSelectedCustomerId('');
+              setIsAccountNumberEditable(false);
+              setManualAccountNumber(nextAccountNumber);
             }}>
               Create Account
             </Button>

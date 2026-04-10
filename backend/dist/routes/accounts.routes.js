@@ -14,6 +14,8 @@ router.get('/', auth_1.authenticateToken, accounts_controller_1.getAccounts);
 router.get('/:id', auth_1.authenticateToken, accounts_controller_1.getAccountById);
 // Create new account
 router.post('/', auth_1.authenticateToken, validators_1.validateAccountData, accounts_controller_1.createAccount);
+// Bulk activate all accounts
+router.post('/bulk-activate', auth_1.authenticateToken, accounts_controller_1.bulkActivateAccounts);
 // Update account
 router.put('/:id', auth_1.authenticateToken, accounts_controller_1.updateAccount);
 // Delete account

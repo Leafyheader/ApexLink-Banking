@@ -20,7 +20,9 @@ const bankIncome_routes_1 = __importDefault(require("./routes/bankIncome.routes"
 const reports_routes_1 = require("./routes/reports.routes");
 const expenses_routes_1 = __importDefault(require("./routes/expenses.routes"));
 const users_routes_1 = __importDefault(require("./routes/users.routes"));
+const audit_routes_1 = __importDefault(require("./routes/audit.routes"));
 const errorHandler_1 = require("./middleware/errorHandler");
+const auditTrail_1 = require("./middleware/auditTrail");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT || 5000;
@@ -28,6 +30,7 @@ const port = process.env.PORT || 5000;
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '10mb' })); // Increase JSON payload limit
 app.use(express_1.default.urlencoded({ extended: true, limit: '10mb' })); // Increase URL-encoded payload limit
+app.use('/api', auditTrail_1.auditTrailMiddleware);
 // Serve static files from uploads directory
 app.use('/uploads', express_1.default.static(path_1.default.join(__dirname, '../uploads')));
 // Routes
@@ -44,6 +47,7 @@ app.use('/api/bank-income', bankIncome_routes_1.default);
 app.use('/api/reports', reports_routes_1.reportsRouter);
 app.use('/api/expenses', expenses_routes_1.default);
 app.use('/api/users', users_routes_1.default);
+app.use('/api/audit', audit_routes_1.default);
 // Error handling middleware
 app.use(errorHandler_1.errorHandler);
 // Start server

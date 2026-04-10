@@ -1,0 +1,12 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+const express_1 = require("express");
+const auth_1 = require("../middleware/auth");
+const roleAuth_1 = require("../middleware/roleAuth");
+const audit_controller_1 = require("../controllers/audit.controller");
+const router = (0, express_1.Router)();
+router.use(auth_1.authenticateToken);
+router.use((0, roleAuth_1.requireRole)(['ADMIN', 'MANAGER']));
+router.get('/', audit_controller_1.getAuditEvents);
+router.get('/:id', audit_controller_1.getAuditEventById);
+exports.default = router;

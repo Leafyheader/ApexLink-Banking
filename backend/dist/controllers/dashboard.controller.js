@@ -11,13 +11,16 @@ const getDashboardSummary = async (req, res) => {
         const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-        // Get total customers (all customers, not just verified)
-        const totalCustomers = await prisma.customer.count();
+        const visibleCustomerWhere = {
+            isHidden: false
+        };
+        // Count only visible customers so hidden no-account customers do not inflate dashboard totals.
+        const totalCustomers = await prisma.customer.count({
+            where: visibleCustomerWhere
+        });
         // Get customers from previous month for comparison
         const customersLastMonth = await prisma.customer.count({
-            where: {
-                createdAt: { lte: previousMonthEnd }
-            }
+            where: Object.assign(Object.assign({}, visibleCustomerWhere), { createdAt: { lte: previousMonthEnd } })
         }); // Get total deposits (sum of all deposit transactions)
         const depositsResult = await prisma.transaction.aggregate({
             where: {

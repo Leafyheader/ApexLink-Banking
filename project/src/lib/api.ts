@@ -28,8 +28,8 @@ api.interceptors.response.use(
   async (error: AxiosError) => {
     const originalRequest = error.config;
     
-    // Handle 401 Unauthorized responses
-    if (error.response?.status === 401 && !originalRequest?.headers['X-Retry']) {
+    // Handle 401 Unauthorized and 403 Forbidden responses
+    if ((error.response?.status === 401 || error.response?.status === 403) && !originalRequest?.headers['X-Retry']) {
       // Clear auth state and redirect to login
       localStorage.removeItem('token');
       window.location.href = '/login';
@@ -274,6 +274,37 @@ export const expensesApi = {
   // Get specific expense
   getById: async (id: string) => {
     const response = await api.get(`/expenses/${id}`);
+    return response.data;
+  },
+};
+
+// Audit API functions
+export const auditApi = {
+  getEvents: async (params: {
+    page?: number;
+    limit?: number;
+    search?: string;
+    outcome?: string;
+    action?: string;
+    entityType?: string;
+    actorRole?: string;
+    dateFrom?: string;
+    dateTo?: string;
+  } = {}) => {
+    const searchParams = new URLSearchParams();
+
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== '') {
+        searchParams.append(key, String(value));
+      }
+    });
+
+    const response = await api.get(`/audit?${searchParams.toString()}`);
+    return response.data;
+  },
+
+  getEventById: async (id: string) => {
+    const response = await api.get(`/audit/${id}`);
     return response.data;
   },
 };

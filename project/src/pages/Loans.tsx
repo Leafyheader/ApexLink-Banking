@@ -29,6 +29,13 @@ const Loans: React.FC = () => {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Loan statistics state
+  const [loanStats, setLoanStats] = useState({
+    totalDisbursed: 0,
+    totalRepayment: 0,
+    totalInterestEarned: 0,
+  });
+  const [isStatsLoading, setIsStatsLoading] = useState(true);
   // Form state for new/edit loan
   const [formData, setFormData] = useState({
     customerId: '',
@@ -85,18 +92,51 @@ const Loans: React.FC = () => {
 
   const fetchCustomers = useCallback(async () => {
     try {
-      const response = await api.get('/loans/customers');
+      const response = await api.get('/loans/customers?limit=50');
       setCustomers(response.data.customers || []);
     } catch (err) {
       console.error('Error fetching customers:', err);
     }
   }, []);
 
-  // Load all customers for dropdown when modal opens
+  // Fetch loan statistics
+  const fetchLoanStats = useCallback(async () => {
+    try {
+      setIsStatsLoading(true);
+      // Fetch loan stats from loans endpoint for disbursed and repayment
+      const loansStatsResponse = await api.get('/loans/stats');
+      const loansStats = loansStatsResponse.data.stats || {
+        totalDisbursed: 0,
+        totalRepayment: 0,
+      };
+
+      // Fetch loan interest from bank income breakdown (using same logic as BankIncome.tsx)
+      const bankIncomeResponse = await api.get('/bank-income/breakdown?period=all');
+      const loanInterestEarned = bankIncomeResponse.data.stats?.breakdown?.loan_interest?.amount || 0;
+
+      setLoanStats({
+        totalDisbursed: loansStats.totalDisbursed,
+        totalRepayment: loansStats.totalRepayment,
+        totalInterestEarned: loanInterestEarned,
+      });
+    } catch (err) {
+      console.error('Error fetching loan stats:', err);
+      // Set default values on error
+      setLoanStats({
+        totalDisbursed: 0,
+        totalRepayment: 0,
+        totalInterestEarned: 0,
+      });
+    } finally {
+      setIsStatsLoading(false);
+    }
+  }, []);
+
+  // Load all customers for dropdown when modal opens (only customers with accounts)
   const loadAllCustomers = useCallback(async () => {
     if (allCustomers.length === 0) {
       try {
-        const response = await api.get('/customers?limit=1000');
+        const response = await api.get('/loans/customers?limit=1000');
         setAllCustomers(response.data.customers || []);
       } catch (err) {
         console.error('Error fetching all customers:', err);
@@ -110,6 +150,9 @@ const Loans: React.FC = () => {
   useEffect(() => {
     fetchCustomers();
   }, [fetchCustomers]);
+  useEffect(() => {
+    fetchLoanStats();
+  }, [fetchLoanStats]);
 
   // Debounce search query
   useEffect(() => {
@@ -241,7 +284,7 @@ const Loans: React.FC = () => {
     alert('Edit functionality coming soon!');
   };
 
-  const openDetailsModal = (loan: Loan) => {
+  const openDetailsModal = async (loan: Loan) => {
     // Validate loan object
     if (!loan || !loan.id) {
       console.error('Invalid loan object:', loan);
@@ -249,13 +292,25 @@ const Loans: React.FC = () => {
       return;
     }
 
-    // Debug: Log the loan object to see what data we have
-    console.log('Opening details for loan:', loan);
-    
-    // Use the loan data from the list directly
-    // Since we have a Refresh button to get fresh data for the entire list
-    setSelectedLoan(loan);
-    setIsDetailsModalOpen(true);
+    try {
+      // Fetch detailed loan information including guarantor details
+      const response = await api.get(`/loans/${loan.id}`);
+      const detailedLoan = response.data.loan;
+      
+      // Debug: Log the detailed loan object to see what data we have
+      console.log('Detailed loan with guarantors:', detailedLoan);
+      
+      setSelectedLoan(detailedLoan);
+      setIsDetailsModalOpen(true);
+    } catch (err: unknown) {
+      console.error('Error fetching detailed loan:', err);
+      const errorMessage = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to load loan details';
+      setError(errorMessage);
+      
+      // Fallback to using the loan data from the list
+      setSelectedLoan(loan);
+      setIsDetailsModalOpen(true);
+    }
   };
 
   const openDeleteModal = (loan: Loan) => {
@@ -267,13 +322,19 @@ const Loans: React.FC = () => {
     if (!currentLoan) return;
 
     try {
-      // For now, just remove from local state (no API endpoint yet)
+      // Call the backend API to delete the loan
+      await api.delete(`/loans/${currentLoan.id}`);
+      
+      // Remove from local state after successful deletion
       setLoans(loans.filter(loan => loan.id !== currentLoan.id));
       setIsDeleteModalOpen(false);
       setCurrentLoan(null);
       alert('Loan deleted successfully!');
-    } catch (err) {
-      console.error('Error deleting loan:', err);      setError('Failed to delete loan. Please try again.');
+    } catch (err: unknown) {
+      console.error('Error deleting loan:', err);
+      const errorMessage = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to delete loan. Please try again.';
+      setError(errorMessage);
+      alert(errorMessage);
     }
   };
 
@@ -342,6 +403,66 @@ const Loans: React.FC = () => {
             New Loan
           </Button>
         </div>
+      </div>
+
+      {/* Loan Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Loans Disbursed</CardTitle>
+            <CreditCard className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isStatsLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+              ) : (
+                formatCurrency(loanStats.totalDisbursed, 'GHS', 'en-GH', 2)
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total amount of loans given out
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Loan Repayments</CardTitle>
+            <RefreshCw className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isStatsLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+              ) : (
+                formatCurrency(loanStats.totalRepayment, 'GHS', 'en-GH', 2)
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total amount repaid by customers
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Interest Earned</CardTitle>
+            <Percent className="h-4 w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {isStatsLoading ? (
+                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+              ) : (
+                formatCurrency(loanStats.totalInterestEarned, 'GHS', 'en-GH', 2)
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total interest collected from loans
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       {error && (
@@ -444,13 +565,14 @@ const Loans: React.FC = () => {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-8">
+                <TableCell colSpan={9} className="text-center py-8">
                   <div className="text-gray-500">
                     {searchQuery ? 'No loans found matching your search.' : 'No loans found.'}
                   </div>
                 </TableCell>
               </TableRow>
-            )}          </TableBody>
+            )}
+          </TableBody>
         </Table>
         {totalPages > 1 && (
           <div className="p-6 border-t border-gray-200 flex justify-between items-center">
@@ -896,7 +1018,7 @@ const Loans: React.FC = () => {
             </Card>
 
             {/* Guarantors Information */}
-            {(selectedLoan.guarantor1 || selectedLoan.guarantor2 || selectedLoan.guarantor3) && (
+            {((selectedLoan.guarantor1 || selectedLoan.guarantor2 || selectedLoan.guarantor3) || selectedLoan.guarantorDetails?.length) && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -905,32 +1027,149 @@ const Loans: React.FC = () => {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {selectedLoan.guarantor1 && (
-                      <div className="p-4 border rounded-lg">
-                        <h4 className="font-medium text-gray-900 mb-2">Guarantor 1</h4>
-                        <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor1.name}</p>
-                        <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor1.phone || 'N/A'}</p>
-                        <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor1Percentage || 0}%</p>
+                  {/* Enhanced Guarantor Details from API */}
+                  {selectedLoan.guarantorDetails && selectedLoan.guarantorDetails.length > 0 ? (
+                    <div className="space-y-6">
+                      {selectedLoan.guarantorDetails.map((guarantor, index) => (
+                        <div key={guarantor.id} className="border rounded-lg p-6 bg-gray-50">
+                          <div className="flex items-center justify-between mb-4">
+                            <h4 className="text-lg font-semibold text-gray-900">
+                              Guarantor {index + 1}
+                            </h4>
+                            <Badge variant={guarantor.status === 'ACTIVE' ? 'success' : guarantor.status === 'RELEASED' ? 'secondary' : 'danger'}>
+                              {guarantor.status}
+                            </Badge>
+                          </div>
+                          
+                          {/* Personal Information */}
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
+                              <p className="text-gray-900 font-medium">{guarantor.name}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+                              <p className="text-gray-900">{guarantor.phone || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                              <p className="text-gray-900">{guarantor.email || 'N/A'}</p>
+                            </div>
+                            <div>
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Guaranteed Date</label>
+                              <p className="text-gray-900">{formatDate(guarantor.createdAt)}</p>
+                            </div>
+                          </div>
+
+                          {/* Account Information */}
+                          <div className="border-t pt-4">
+                            <h5 className="font-medium text-gray-900 mb-3">Guarantor Account Details</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
+                                <p className="text-gray-900 font-mono">{guarantor.account.accountNumber}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+                                <p className="text-gray-900">{guarantor.account.type}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Balance</label>
+                                <p className="text-gray-900">{formatCurrency(guarantor.account.balance, 'GHS', 'en-GH', 2)}</p>
+                              </div>
+                              {guarantor.account.shareBalance > 0 && (
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">Share Balance</label>
+                                  <p className="text-gray-900">{formatCurrency(guarantor.account.shareBalance, 'GHS', 'en-GH', 2)}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Guarantee Amount */}
+                          <div className="border-t pt-4 mt-4">
+                            <h5 className="font-medium text-gray-900 mb-3">Guarantee Details</h5>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Guaranteed Amount</label>
+                                <p className="text-xl font-bold text-blue-600">{formatCurrency(guarantor.guaranteedAmount, 'GHS', 'en-GH', 2)}</p>
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage of Loan</label>
+                                <p className="text-lg font-semibold text-green-600">
+                                  {((guarantor.guaranteedAmount / selectedLoan.amount) * 100).toFixed(1)}%
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Address if available */}
+                          {guarantor.address && (
+                            <div className="border-t pt-4 mt-4">
+                              <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
+                              <p className="text-gray-900">{guarantor.address}</p>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+
+                      {/* Total Guarantee Summary */}
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                        <h5 className="font-medium text-blue-900 mb-3">Guarantee Summary</h5>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-sm font-medium text-blue-700 mb-1">Total Guaranteed</label>
+                            <p className="text-lg font-bold text-blue-900">
+                              {formatCurrency(
+                                selectedLoan.guarantorDetails.reduce((sum, g) => sum + g.guaranteedAmount, 0),
+                                'GHS', 'en-GH', 2
+                              )}
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-blue-700 mb-1">Total Percentage</label>
+                            <p className="text-lg font-bold text-blue-900">
+                              {selectedLoan.guarantorDetails.reduce((sum, g) => sum + ((g.guaranteedAmount / selectedLoan.amount) * 100), 0).toFixed(1)}%
+                            </p>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-blue-700 mb-1">Active Guarantors</label>
+                            <p className="text-lg font-bold text-blue-900">
+                              {selectedLoan.guarantorDetails.filter(g => g.status === 'ACTIVE').length} of {selectedLoan.guarantorDetails.length}
+                            </p>
+                          </div>
+                        </div>
                       </div>
-                    )}
-                    {selectedLoan.guarantor2 && (
-                      <div className="p-4 border rounded-lg">
-                        <h4 className="font-medium text-gray-900 mb-2">Guarantor 2</h4>
-                        <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor2.name}</p>
-                        <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor2.phone || 'N/A'}</p>
-                        <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor2Percentage || 0}%</p>
-                      </div>
-                    )}
-                    {selectedLoan.guarantor3 && (
-                      <div className="p-4 border rounded-lg">
-                        <h4 className="font-medium text-gray-900 mb-2">Guarantor 3</h4>
-                        <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor3.name}</p>
-                        <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor3.phone || 'N/A'}</p>
-                        <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor3Percentage || 0}%</p>
-                      </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    /* Fallback to legacy guarantor display */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {selectedLoan.guarantor1 && (
+                        <div className="p-4 border rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 1</h4>
+                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor1.name}</p>
+                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor1.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor1Percentage || 0}%</p>
+                        </div>
+                      )}
+                      {selectedLoan.guarantor2 && (
+                        <div className="p-4 border rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 2</h4>
+                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor2.name}</p>
+                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor2.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor2Percentage || 0}%</p>
+                        </div>
+                      )}
+                      {selectedLoan.guarantor3 && (
+                        <div className="p-4 border rounded-lg">
+                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 3</h4>
+                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor3.name}</p>
+                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor3.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor3Percentage || 0}%</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

@@ -194,7 +194,7 @@ export const createAccount = async (req: AuthRequest, res: Response): Promise<vo
       res.status(400).json({ errors: errors.array() });
       return;
     }
-      const { customerId, type, balance, currency, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
+      const { customerId, type, accountNumber, balance, currency, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
     
     if (!req.user) {
       res.status(401).json({ message: 'User not authenticated' });
@@ -209,10 +209,21 @@ export const createAccount = async (req: AuthRequest, res: Response): Promise<vo
       res.status(404).json({ message: 'Customer not found' });
       return;
     }
-      // Generate account number using the new ID generator
-    const accountNumber = await generateAccountNumber();// Create the account with pending authorization
+    const providedAccountNumber = typeof accountNumber === 'string' ? accountNumber.trim().toUpperCase() : '';
+    const finalAccountNumber = providedAccountNumber || await generateAccountNumber();
+
+    const existingWithAccountNumber = await prisma.account.findUnique({
+      where: { accountNumber: finalAccountNumber }
+    });
+
+    if (existingWithAccountNumber) {
+      res.status(409).json({ message: `Account number ${finalAccountNumber} already exists` });
+      return;
+    }
+
+    // Create the account with pending authorization
     const createData: any = {
-      accountNumber,
+      accountNumber: finalAccountNumber,
       type,
       balance: balance || 0,
       currency: currency || 'USD',
@@ -276,7 +287,7 @@ export const updateAccount = async (req: Request, res: Response): Promise<void> 
     }
     
     const { id } = req.params;
-    const { status, minimumBalance, overdraftLimit, shareBalance, sharesAvailableBalance } = req.body;
+    const { status, minimumBalance, overdraftLimit, balance, shareBalance, sharesAvailableBalance } = req.body;
     
     // Check if account exists
     const existingAccount = await prisma.account.findUnique({ where: { id } });
@@ -291,6 +302,10 @@ export const updateAccount = async (req: Request, res: Response): Promise<void> 
       overdraftLimit,
       updatedAt: new Date()
     };
+
+    if (balance !== undefined) {
+      updateData.balance = balance;
+    }
     
     if (shareBalance !== undefined) {
       updateData.shareBalance = shareBalance;
@@ -404,5 +419,30 @@ export const updateAccountStatus = async (req: Request, res: Response): Promise<
   } catch (error) {
     console.error('Error updating account status:', error);
     res.status(500).json({ message: 'Failed to update account status' });
+  }
+};
+
+// Bulk activate accounts
+export const bulkActivateAccounts = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const result = await prisma.account.updateMany({
+      where: {
+        status: {
+          not: 'ACTIVE',
+        },
+      },
+      data: {
+        status: 'ACTIVE',
+        updatedAt: new Date(),
+      },
+    });
+
+    res.json({
+      message: 'Bulk activation completed',
+      activatedCount: result.count,
+    });
+  } catch (error) {
+    console.error('Error bulk activating accounts:', error);
+    res.status(500).json({ message: 'Failed to bulk activate accounts' });
   }
 };
