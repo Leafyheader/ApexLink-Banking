@@ -37,7 +37,7 @@ interface AccountNotificationsResponse {
 
 interface AccountNotificationsPanelProps {
   accountId: string | null;
-  transactionType: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares';
+  transactionType: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares' | 'withdrawal-shares';
   className?: string;
 }
 
@@ -90,19 +90,19 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
 
   if (loading) {
     return (
-      <div className={`flex items-center justify-center p-4 bg-gray-50 rounded-lg ${className}`}>
+      <div className={`flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-800 rounded-lg ${className}`}>
         <Loader2 className="w-4 h-4 animate-spin mr-2" />
-        <span className="text-sm text-gray-600">Loading account information...</span>
+        <span className="text-sm text-gray-600 dark:text-gray-300">Loading account information...</span>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className={`p-3 bg-red-50 border border-red-200 rounded-lg ${className}`}>
+      <div className={`p-3 bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-lg ${className}`}>
         <div className="flex items-center">
-          <AlertTriangle className="w-4 h-4 text-red-600 mr-2" />
-          <span className="text-sm text-red-700">{error}</span>
+          <AlertTriangle className="w-4 h-4 text-red-600 dark:text-red-400 mr-2" />
+          <span className="text-sm text-red-700 dark:text-red-200">{error}</span>
         </div>
       </div>
     );
@@ -118,10 +118,10 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
   if (!notifications || (!hasNotifications && !loading && !error)) {
     // Show a debug message when no notifications are found
     return (
-      <div className={`p-3 bg-blue-50 border border-blue-200 rounded-lg ${className}`}>
+      <div className={`p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg ${className}`}>
         <div className="flex items-center">
-          <Info className="w-4 h-4 text-blue-600 mr-2" />
-          <span className="text-sm text-blue-700">
+          <Info className="w-4 h-4 text-blue-600 dark:text-blue-400 mr-2" />
+          <span className="text-sm text-blue-700 dark:text-blue-200">
             ✅ Account notification system active - No restrictions found for this account
           </span>
         </div>
@@ -132,11 +132,11 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
   const getNotificationIcon = (type: string) => {
     switch (type) {
       case 'WARNING':
-        return <AlertTriangle className="w-4 h-4 text-orange-600" />;
+        return <AlertTriangle className="w-4 h-4 text-orange-600 dark:text-orange-400" />;
       case 'RESTRICTION':
-        return <Ban className="w-4 h-4 text-red-600" />;
+        return <Ban className="w-4 h-4 text-red-600 dark:text-red-400" />;
       default:
-        return <Info className="w-4 h-4 text-blue-600" />;
+        return <Info className="w-4 h-4 text-blue-600 dark:text-blue-400" />;
     }
   };
 
@@ -158,7 +158,7 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
   return (
     <Card className={className}>
       <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium text-gray-900 flex items-center">
+        <CardTitle className="text-sm font-medium text-gray-900 dark:text-dark-text flex items-center">
           <Info className="w-4 h-4 mr-2" />
           Account Information & Restrictions
         </CardTitle>
@@ -166,45 +166,45 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
       <CardContent className="space-y-3">
         {/* Withdrawal Information */}
         {showWithdrawalInfo && (
-          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <div className="p-3 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded-lg">
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-medium text-blue-900">
+              <h4 className="text-sm font-medium text-blue-900 dark:text-blue-100">
                 {transactionType === 'withdrawal' ? 'Withdrawal Limits' : 'Available Balance'}
               </h4>
               <Badge variant="primary" className="text-xs">
                 Available: {formatCurrency(notifications.withdrawalInfo.availableAmount, 'GHS', 'en-GH', 2)}
               </Badge>
             </div>
-            
-            <div className="text-xs text-blue-700 space-y-1">
+
+            <div className="text-xs text-blue-700 dark:text-blue-300 space-y-1">
               <div className="flex justify-between">
                 <span>Account Balance:</span>
                 <span className="font-medium">
                   {formatCurrency(notifications.withdrawalInfo.accountBalance, 'GHS', 'en-GH', 2)}
                 </span>
               </div>
-              
+
               {notifications.withdrawalInfo.restrictionBreakdown.ownLoans > 0 && (
                 <div className="flex justify-between">
                   <span>Restricted (Own Loans):</span>
-                  <span className="font-medium text-red-600">
+                  <span className="font-medium text-red-600 dark:text-red-400">
                     -{formatCurrency(notifications.withdrawalInfo.restrictionBreakdown.ownLoans, 'GHS', 'en-GH', 2)}
                   </span>
                 </div>
               )}
-              
+
               {notifications.withdrawalInfo.restrictionBreakdown.guarantees > 0 && (
                 <div className="flex justify-between">
                   <span>Restricted (Guarantees):</span>
-                  <span className="font-medium text-orange-600">
+                  <span className="font-medium text-orange-600 dark:text-orange-400">
                     -{formatCurrency(notifications.withdrawalInfo.restrictionBreakdown.guarantees, 'GHS', 'en-GH', 2)}
                   </span>
                 </div>
               )}
-              
-              <div className="flex justify-between border-t border-blue-300 pt-1 font-medium">
+
+              <div className="flex justify-between border-t border-blue-300 dark:border-blue-700 pt-1 font-medium">
                 <span>Available to {transactionType === 'withdrawal' ? 'Withdraw' : 'Transfer'}:</span>
-                <span className="text-green-700">
+                <span className="text-green-700 dark:text-green-400">
                   {formatCurrency(notifications.withdrawalInfo.availableAmount, 'GHS', 'en-GH', 2)}
                 </span>
               </div>
@@ -236,28 +236,28 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
                 key={index}
                 className={`p-3 rounded-lg border ${
                   notification.type === 'RESTRICTION'
-                    ? 'bg-red-50 border-red-200'
+                    ? 'bg-red-50 dark:bg-red-900 border-red-200 dark:border-red-700'
                     : notification.type === 'WARNING'
-                    ? 'bg-orange-50 border-orange-200'
-                    : 'bg-blue-50 border-blue-200'
+                    ? 'bg-orange-50 dark:bg-orange-900 border-orange-200 dark:border-orange-700'
+                    : 'bg-blue-50 dark:bg-blue-900 border-blue-200 dark:border-blue-700'
                 }`}
               >
                 <div className="flex items-start space-x-2">
                   {getNotificationIcon(notification.type)}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900">
+                      <p className="text-sm font-medium text-gray-900 dark:text-dark-text">
                         {notification.title}
                       </p>
                       <Badge variant={getNotificationBadgeVariant(notification.type)} className="text-xs">
                         {notification.type}
                       </Badge>
                     </div>
-                    <p className="text-xs text-gray-700 mt-1">
+                    <p className="text-xs text-gray-700 dark:text-gray-300 mt-1">
                       {notification.message}
                     </p>
                     {notification.amount && (
-                      <p className="text-xs font-medium text-gray-900 mt-1">
+                      <p className="text-xs font-medium text-gray-900 dark:text-dark-text mt-1">
                         Amount: {formatCurrency(notification.amount, 'GHS', 'en-GH', 2)}
                       </p>
                     )}
@@ -270,13 +270,13 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
 
         {/* Specific Restrictions Details */}
         {notifications.withdrawalInfo.restrictions.length > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <h4 className="text-xs font-medium text-gray-700 mb-2">Restriction Details:</h4>
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-dark-border">
+            <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Restriction Details:</h4>
             <div className="space-y-1">
               {notifications.withdrawalInfo.restrictions.map((restriction, index) => (
-                <div key={index} className="text-xs text-gray-600 flex justify-between">
+                <div key={index} className="text-xs text-gray-600 dark:text-gray-400 flex justify-between">
                   <span className="flex-1">{restriction.description}</span>
-                  <span className="font-medium text-red-600 ml-2">
+                  <span className="font-medium text-red-600 dark:text-red-400 ml-2">
                     {formatCurrency(restriction.amount, 'GHS', 'en-GH', 2)}
                   </span>
                 </div>
@@ -287,9 +287,9 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
 
         {/* Helpful Tips */}
         {notifications.hasActiveLoans && (transactionType === 'withdrawal' || transactionType === 'transfer') && (
-          <div className="mt-3 pt-3 border-t border-gray-200">
-            <div className="p-2 bg-yellow-50 border border-yellow-200 rounded">
-              <p className="text-xs text-yellow-800">
+          <div className="mt-3 pt-3 border-t border-gray-200 dark:border-dark-border">
+            <div className="p-2 bg-yellow-50 dark:bg-yellow-900 border border-yellow-200 dark:border-yellow-700 rounded">
+              <p className="text-xs text-yellow-800 dark:text-yellow-200">
                 💡 <strong>Tip:</strong> With active loans, you must maintain a balance greater than your loan amount to make withdrawals.
               </p>
             </div>
@@ -298,8 +298,8 @@ const AccountNotificationsPanel: React.FC<AccountNotificationsPanelProps> = ({
 
         {notifications.hasGuaranteeObligations && (
           <div className="mt-2">
-            <div className="p-2 bg-blue-50 border border-blue-200 rounded">
-              <p className="text-xs text-blue-800">
+            <div className="p-2 bg-blue-50 dark:bg-blue-900 border border-blue-200 dark:border-blue-700 rounded">
+              <p className="text-xs text-blue-800 dark:text-blue-200">
                 🤝 <strong>Note:</strong> This account is guaranteeing other loans. Some funds may be restricted to maintain guarantee obligations.
               </p>
             </div>

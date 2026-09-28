@@ -1,8 +1,18 @@
 import { Request, Response } from 'express';
 import { PrismaClient, ExpenseStatus } from '@prisma/client';
 import { AuthRequest } from '../types/auth';
+import { getOrCreateTreasuryAccount } from '../utils/treasuryAccount';
+import { parseRangeStart, parseRangeEnd } from '../utils/cashReporting';
 
 const prisma = new PrismaClient();
+
+// Valid expense status transitions. PAID and REJECTED are terminal.
+const VALID_EXPENSE_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['APPROVED', 'REJECTED', 'PAID'],
+  APPROVED: ['PAID', 'REJECTED'],
+  PAID: [],
+  REJECTED: []
+};
 
 // Get all expenses with filtering
 export const getExpenses = async (req: AuthRequest, res: Response) => {
@@ -27,8 +37,10 @@ export const getExpenses = async (req: AuthRequest, res: Response) => {
 
     if (dateFrom || dateTo) {
       where.date = {};
-      if (dateFrom) where.date.gte = new Date(dateFrom as string);
-      if (dateTo) where.date.lte = new Date(dateTo as string);
+      const rangeStart = parseRangeStart(dateFrom);
+      const rangeEnd = parseRangeEnd(dateTo);
+      if (rangeStart) where.date.gte = rangeStart;
+      if (rangeEnd) where.date.lte = rangeEnd;
     }
 
     if (category) {
@@ -244,6 +256,15 @@ export const updateExpenseStatus = async (req: AuthRequest, res: Response) => {
       return res.status(404).json({ error: 'Expense not found' });
     }
 
+    if (status !== existingExpense.status) {
+      const allowedNextStatuses = VALID_EXPENSE_TRANSITIONS[existingExpense.status] || [];
+      if (!allowedNextStatuses.includes(status)) {
+        return res.status(400).json({
+          error: `Cannot change expense status from ${existingExpense.status} to ${status}`
+        });
+      }
+    }
+
     // Update expense with status and approval info
     const updateData: any = {
       status
@@ -259,30 +280,85 @@ export const updateExpenseStatus = async (req: AuthRequest, res: Response) => {
         updateData.approvedById = req.user!.id;
         updateData.approvedDate = new Date();
       }
-    }    const expense = await prisma.expense.update({
-      where: { id },
-      data: updateData,
-      include: {
-        createdByUser: {
-          select: {
-            id: true,
-            username: true,
-            name: true
+    }
+
+    const expense = await prisma.$transaction(async (tx) => {
+      // Atomically claim this expense for the transition - only succeeds if its status
+      // hasn't changed since we read it above, preventing a double-approve/double-pay race.
+      const claim = await tx.expense.updateMany({
+        where: { id, status: existingExpense.status },
+        data: updateData
+      });
+
+      if (claim.count === 0) {
+        throw new Error('ALREADY_PROCESSED');
+      }
+
+      // Money actually leaves the bank when an expense is marked PAID (not merely APPROVED) -
+      // debit the treasury account and record a real Transaction for it.
+      if (status === 'PAID') {
+        const treasury = await getOrCreateTreasuryAccount(tx, req.user!.id);
+        const amount = Number(existingExpense.amount);
+
+        const debit = await tx.account.updateMany({
+          where: { id: treasury.id, balance: { gte: amount } },
+          data: {
+            balance: { decrement: amount },
+            lastTransactionDate: new Date()
           }
-        },
-        approvedByUser: {
-          select: {
-            id: true,
-            username: true,
-            name: true
+        });
+
+        if (debit.count === 0) {
+          throw new Error('INSUFFICIENT_TREASURY_FUNDS');
+        }
+
+        await tx.transaction.create({
+          data: {
+            accountId: treasury.id,
+            type: 'WITHDRAWAL',
+            amount,
+            description: `Expense payment - ${existingExpense.description} (${existingExpense.vendor})`,
+            reference: `EXP-${id.slice(-8)}`,
+            status: 'COMPLETED'
+          }
+        });
+
+        await tx.expense.update({
+          where: { id },
+          data: { paidFromAccountId: treasury.id }
+        });
+      }
+
+      return tx.expense.findUniqueOrThrow({
+        where: { id },
+        include: {
+          createdByUser: {
+            select: {
+              id: true,
+              username: true,
+              name: true
+            }
+          },
+          approvedByUser: {
+            select: {
+              id: true,
+              username: true,
+              name: true
+            }
           }
         }
-      }
+      });
     });
 
     res.json(expense);
   } catch (error) {
     console.error('Error updating expense status:', error);
+    if (error instanceof Error && error.message === 'ALREADY_PROCESSED') {
+      return res.status(409).json({ error: 'Expense status has already changed, please refresh and try again' });
+    }
+    if (error instanceof Error && error.message === 'INSUFFICIENT_TREASURY_FUNDS') {
+      return res.status(409).json({ error: 'Insufficient treasury funds to pay this expense' });
+    }
     res.status(500).json({ error: 'Failed to update expense status' });
   }
 };

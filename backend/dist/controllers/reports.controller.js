@@ -2,150 +2,117 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getCustomerMetrics = exports.getTransactionSummary = exports.getLoanPortfolio = exports.getAccountAnalytics = exports.getFinancialSummary = void 0;
 const client_1 = require("@prisma/client");
+const cashReporting_1 = require("../utils/cashReporting");
 const prisma = new client_1.PrismaClient();
+// Date range for a report: an explicit YYYY-MM-DD "to" date covers that whole day.
+const reportRange = (dateFrom, dateTo, defaultDays) => {
+    var _a, _b;
+    const endDate = (_a = (0, cashReporting_1.parseRangeEnd)(dateTo)) !== null && _a !== void 0 ? _a : new Date();
+    const startDate = (_b = (0, cashReporting_1.parseRangeStart)(dateFrom)) !== null && _b !== void 0 ? _b : new Date(Date.now() - defaultDays * 24 * 60 * 60 * 1000);
+    return { startDate, endDate };
+};
+// Only loans that were actually approved (and so disbursed) belong in the loan book - pending
+// and rejected loans keep status ACTIVE but no money ever went out.
+const disbursedLoans = { authorizationStatus: 'APPROVED' };
 // Get financial summary report
 const getFinancialSummary = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
-        // Set default date range (last 30 days if not provided)
-        const endDate = dateTo ? new Date(dateTo) : new Date();
-        const startDate = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-        // Get total deposits and withdrawals for the period
-        const transactionSummary = await prisma.transaction.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                status: 'COMPLETED',
-            },
-            _sum: {
-                amount: true,
-            },
-            _count: {
-                id: true,
-            },
-        });
-        // Get deposits specifically
-        const deposits = await prisma.transaction.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                type: 'DEPOSIT',
-                status: 'COMPLETED',
-            },
-            _sum: {
-                amount: true,
-            },
-        });
-        // Get withdrawals specifically
-        const withdrawals = await prisma.transaction.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                type: 'WITHDRAWAL',
-                status: 'COMPLETED',
-            },
-            _sum: {
-                amount: true,
-            },
-        });
-        // Get loan repayments
-        const loanRepayments = await prisma.transaction.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                type: 'LOAN_REPAYMENT',
-                status: 'COMPLETED',
-            },
-            _sum: {
-                amount: true,
-            },
-        });
+        const { startDate, endDate } = reportRange(dateFrom, dateTo, 30);
+        const period = { gte: startDate, lte: endDate };
+        const sum = async (where) => {
+            const result = await prisma.transaction.aggregate({
+                where: Object.assign({ date: period, status: 'COMPLETED' }, where),
+                _sum: { amount: true }
+            });
+            return Number(result._sum.amount || 0);
+        };
+        const cash = (type) => sum({ type, AND: [cashReporting_1.cashOnlyWhere] });
+        // Cash at the counter only - fees, transfers, opening balances, corrections, treasury and
+        // guarantor bookkeeping are not cash and are excluded (see utils/cashReporting.ts).
+        const [totalDeposits, totalWithdrawals, sharesDeposits, sharesWithdrawals, loanRepayments, loanDisbursements, reversals, withdrawalFees] = await Promise.all([
+            cash('DEPOSIT'),
+            cash('WITHDRAWAL'),
+            cash('DEPOSIT_SHARES'),
+            cash('WITHDRAWAL_SHARES'),
+            sum(cashReporting_1.cashLoanRepaymentWhere),
+            sum(cashReporting_1.loanDisbursementWhere),
+            sum({ type: { in: ['DEPOSIT', 'DEPOSIT_SHARES'] }, AND: [cashReporting_1.cashReversalWhere] }),
+            sum({ AND: [cashReporting_1.feesOnlyWhere] })
+        ]);
         // Get active accounts count
         const activeAccounts = await prisma.account.count({
             where: {
                 status: 'ACTIVE',
+                type: { not: 'TREASURY' }
             },
         });
         // Get new accounts created in the period
         const newAccounts = await prisma.account.count({
             where: {
-                createdAt: {
-                    gte: startDate,
-                    lte: endDate,
-                },
+                createdAt: period,
+                type: { not: 'TREASURY' }
             },
-        }); // Get total loans outstanding
+        });
+        // Get total loans outstanding
         const totalLoans = await prisma.loan.aggregate({
-            where: {
-                status: 'ACTIVE',
-            },
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'ACTIVE' }),
             _sum: {
                 outstandingBalance: true,
             },
         });
         // Get overdue loans (using a mock calculation since OVERDUE is not in enum)
         const overdueLoans = await prisma.loan.aggregate({
-            where: {
-                status: 'ACTIVE',
-                nextPaymentDate: {
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'ACTIVE', nextPaymentDate: {
                     lt: new Date(), // Past due date
-                },
-            },
+                } }),
             _sum: {
                 outstandingBalance: true,
             },
         });
         // Get bank income from the BankIncome table
         const bankIncome = await prisma.bankIncome.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-            },
+            where: { date: period },
             _sum: {
                 amount: true,
             },
         });
-        // Calculate net cash flow
-        const totalDeposits = Number(deposits._sum.amount || 0);
-        const totalWithdrawals = Number(withdrawals._sum.amount || 0);
-        const netCashFlow = totalDeposits - totalWithdrawals; // Get actual operating expenses from expenses table (only approved/paid expenses)    // Get actual operating expenses from expenses table (only approved/paid expenses)
-        const operatingExpensesResult = await prisma.expense.aggregate({
-            where: {
-                date: {
-                    gte: startDate,
-                    lte: endDate,
-                },
-                status: {
-                    in: ['APPROVED', 'PAID'], // Only count approved/paid expenses in financial reports
-                },
-            },
-            _sum: {
-                amount: true,
-            },
-        });
-        const operatingExpenses = Number(operatingExpensesResult._sum.amount || 0);
-        const netProfit = Number(bankIncome._sum.amount || 0) - operatingExpenses;
+        const cashIn = (0, cashReporting_1.toPesewas)(totalDeposits + sharesDeposits + loanRepayments + reversals);
+        const cashOut = (0, cashReporting_1.toPesewas)(totalWithdrawals + sharesWithdrawals + loanDisbursements);
+        const netCashFlow = (0, cashReporting_1.toPesewas)(cashIn - cashOut);
+        // Operating expenses = expenses actually PAID out of the treasury in the period. APPROVED
+        // expenses are only authorized - no money has moved yet - so they're reported separately.
+        const [paidExpensesResult, approvedUnpaidResult] = await Promise.all([
+            prisma.expense.aggregate({
+                where: { status: 'PAID', OR: [{ paidDate: period }, { paidDate: null, date: period }] },
+                _sum: { amount: true },
+            }),
+            prisma.expense.aggregate({
+                where: { status: 'APPROVED', date: period },
+                _sum: { amount: true },
+            })
+        ]);
+        const operatingExpenses = Number(paidExpensesResult._sum.amount || 0);
+        const netProfit = (0, cashReporting_1.toPesewas)(Number(bankIncome._sum.amount || 0) - operatingExpenses);
         const financialSummary = {
             totalDeposits,
             totalWithdrawals,
+            sharesDeposits,
+            sharesWithdrawals,
+            loanDisbursements,
+            reversals,
+            withdrawalFees,
+            cashIn,
+            cashOut,
             netCashFlow,
             activeAccounts,
             newAccounts,
             totalLoans: Number(totalLoans._sum.outstandingBalance || 0),
-            loanRepayments: Number(loanRepayments._sum.amount || 0),
+            loanRepayments,
             overdueLoans: Number(overdueLoans._sum.outstandingBalance || 0),
             bankIncome: Number(bankIncome._sum.amount || 0),
             operatingExpenses,
+            approvedUnpaidExpenses: Number(approvedUnpaidResult._sum.amount || 0),
             netProfit,
             periodStart: startDate.toISOString(),
             periodEnd: endDate.toISOString(),
@@ -162,8 +129,7 @@ exports.getFinancialSummary = getFinancialSummary;
 const getAccountAnalytics = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
-        const endDate = dateTo ? new Date(dateTo) : new Date();
-        const startDate = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const { startDate, endDate } = reportRange(dateFrom, dateTo, 30);
         const periodMs = Math.max(24 * 60 * 60 * 1000, endDate.getTime() - startDate.getTime());
         const previousEndDate = new Date(startDate.getTime() - 1);
         const previousStartDate = new Date(previousEndDate.getTime() - periodMs);
@@ -226,36 +192,33 @@ exports.getAccountAnalytics = getAccountAnalytics;
 const getLoanPortfolio = async (req, res) => {
     var _a, _b, _c, _d, _e;
     try {
-        const totalLoans = await prisma.loan.count();
+        const totalLoans = await prisma.loan.count({ where: disbursedLoans });
         const activeLoans = await prisma.loan.count({
-            where: { status: 'ACTIVE' },
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'ACTIVE' }),
         });
         const completedLoans = await prisma.loan.count({
-            where: { status: 'PAID' },
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'PAID' }),
         });
         const defaultedLoans = await prisma.loan.count({
-            where: { status: 'DEFAULTED' },
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'DEFAULTED' }),
         });
         const disbursedAmount = await prisma.loan.aggregate({
+            where: disbursedLoans,
             _sum: { amount: true },
         });
         const repaidAmount = await prisma.loan.aggregate({
+            where: disbursedLoans,
             _sum: { totalPaid: true },
         });
         const outstandingAmount = await prisma.loan.aggregate({
-            where: {
-                status: 'ACTIVE',
-            },
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'ACTIVE' }),
             _sum: { outstandingBalance: true },
         });
         // Calculate portfolio at risk (PAR) - percentage of overdue loans
         const overdueAmount = await prisma.loan.aggregate({
-            where: {
-                status: 'ACTIVE',
-                nextPaymentDate: {
+            where: Object.assign(Object.assign({}, disbursedLoans), { status: 'ACTIVE', nextPaymentDate: {
                     lt: new Date(), // Past due date
-                },
-            },
+                } }),
             _sum: { outstandingBalance: true },
         });
         const portfolioAtRisk = totalLoans > 0
@@ -283,33 +246,50 @@ exports.getLoanPortfolio = getLoanPortfolio;
 const getTransactionSummary = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
-        const endDate = dateTo ? new Date(dateTo) : new Date();
-        const startDate = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000); // Last 7 days
-        // Get daily transaction summary
+        const { startDate, endDate } = reportRange(dateFrom, dateTo, 7);
+        // Daily cash summary. deposits/withdrawals (incl. shares) are cash at the counter only;
+        // fees and transfers are shown separately and are not cash. Returns every day in the
+        // range (the old LIMIT 10 silently cut longer ranges short).
         const dailySummary = await prisma.$queryRaw `
-      SELECT 
-        DATE(date) as date,
-        SUM(CASE WHEN type = 'DEPOSIT' THEN amount ELSE 0 END) as deposits,
-        SUM(CASE WHEN type = 'WITHDRAWAL' THEN amount ELSE 0 END) as withdrawals,
-        SUM(CASE WHEN type = 'TRANSFER' THEN amount ELSE 0 END) as transfers,
-        SUM(CASE WHEN type = 'LOAN_REPAYMENT' THEN amount ELSE 0 END) as loanRepayments,
-        SUM(CASE WHEN type = 'FEE' THEN amount ELSE 0 END) as fees,
-        SUM(amount) as totalVolume
-      FROM Transaction
-      WHERE date >= ${startDate} AND date <= ${endDate} AND status = 'COMPLETED'
-      GROUP BY DATE(date)
-      ORDER BY date DESC
-      LIMIT 10
+      SELECT
+        DATE(t.date) as date,
+        SUM(CASE WHEN t.type IN ('DEPOSIT', 'DEPOSIT_SHARES') AND ${cashReporting_1.SQL_IS_CASH} THEN t.amount ELSE 0 END) as deposits,
+        SUM(CASE WHEN t.type IN ('WITHDRAWAL', 'WITHDRAWAL_SHARES') AND ${cashReporting_1.SQL_IS_CASH} THEN t.amount ELSE 0 END) as withdrawals,
+        SUM(CASE WHEN t.type = 'TRANSFER' THEN t.amount ELSE 0 END) as transfers,
+        SUM(CASE WHEN t.type = 'LOAN_REPAYMENT' THEN t.amount ELSE 0 END) as loanRepayments,
+        SUM(CASE WHEN ${cashReporting_1.SQL_IS_LOAN_DISBURSEMENT} THEN t.amount ELSE 0 END) as loanDisbursements,
+        SUM(CASE WHEN t.type IN ('DEPOSIT', 'DEPOSIT_SHARES') AND ${cashReporting_1.SQL_IS_CASH_REVERSAL} THEN t.amount ELSE 0 END) as reversals,
+        SUM(CASE WHEN ${cashReporting_1.SQL_IS_FEE} THEN t.amount ELSE 0 END) as fees
+      FROM Transaction t
+      JOIN Account a ON a.id = t.accountId
+      WHERE t.date >= ${startDate} AND t.date <= ${endDate} AND t.status = 'COMPLETED'
+      GROUP BY DATE(t.date)
+      ORDER BY DATE(t.date) DESC
     `;
-        const transactionSummary = dailySummary.map((row) => ({
-            date: row.date,
-            deposits: Number(row.deposits || 0),
-            withdrawals: Number(row.withdrawals || 0),
-            transfers: Number(row.transfers || 0),
-            loanRepayments: Number(row.loanRepayments || 0),
-            fees: Number(row.fees || 0),
-            totalVolume: Number(row.totalVolume || 0),
-        }));
+        const transactionSummary = dailySummary.map((row) => {
+            const deposits = Number(row.deposits || 0);
+            const withdrawals = Number(row.withdrawals || 0);
+            const loanRepayments = Number(row.loanRepayments || 0);
+            const loanDisbursements = Number(row.loanDisbursements || 0);
+            const reversals = Number(row.reversals || 0);
+            const cashIn = (0, cashReporting_1.toPesewas)(deposits + loanRepayments + reversals);
+            const cashOut = (0, cashReporting_1.toPesewas)(withdrawals + loanDisbursements);
+            return {
+                date: row.date,
+                deposits,
+                withdrawals,
+                transfers: Number(row.transfers || 0),
+                loanRepayments,
+                loanDisbursements,
+                reversals,
+                fees: Number(row.fees || 0),
+                cashIn,
+                cashOut,
+                netCash: (0, cashReporting_1.toPesewas)(cashIn - cashOut),
+                // Total cash handled at the counter that day
+                totalVolume: (0, cashReporting_1.toPesewas)(cashIn + cashOut),
+            };
+        });
         res.json(transactionSummary);
     }
     catch (error) {
@@ -322,8 +302,7 @@ exports.getTransactionSummary = getTransactionSummary;
 const getCustomerMetrics = async (req, res) => {
     try {
         const { dateFrom, dateTo } = req.query;
-        const endDate = dateTo ? new Date(dateTo) : new Date();
-        const startDate = dateFrom ? new Date(dateFrom) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+        const { startDate, endDate } = reportRange(dateFrom, dateTo, 30);
         const totalCustomers = await prisma.customer.count();
         // Active customers (with at least one active account)
         const activeCustomers = await prisma.customer.count({

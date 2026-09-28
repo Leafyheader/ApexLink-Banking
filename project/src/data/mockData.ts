@@ -6,8 +6,8 @@ const accounts: Account[] = [
     id: '1',
     accountNumber: '1234567890',
     customerName: 'John Doe',
-    type: 'savings',
-    status: 'active',
+    type: 'SAVINGS',
+    status: 'ACTIVE',
     currency: 'USD',
     balance: 12500.75,
     availableBalance: 12450.25,
@@ -28,8 +28,8 @@ const accounts: Account[] = [
     id: '2',
     accountNumber: '2345678901',
     customerName: 'Jane Smith',
-    type: 'current',
-    status: 'active',
+    type: 'CURRENT',
+    status: 'ACTIVE',
     currency: 'USD',
     balance: 5230.50,
     availableBalance: 5230.50,
@@ -49,8 +49,8 @@ const accounts: Account[] = [
     id: '3',
     accountNumber: '3456789012',
     customerName: 'Robert Johnson',
-    type: 'fixed',
-    status: 'dormant',
+    type: 'FIXED',
+    status: 'DORMANT',
     currency: 'USD',
     balance: 25000,
     availableBalance: 0,
@@ -67,8 +67,8 @@ const accounts: Account[] = [
     id: '4',
     accountNumber: '4567890123',
     customerName: 'Sarah Williams',
-    type: 'loan',
-    status: 'active',
+    type: 'LOAN',
+    status: 'ACTIVE',
     currency: 'USD',
     balance: -15000,
     availableBalance: 5000,
@@ -85,8 +85,8 @@ const accounts: Account[] = [
     id: '5',
     accountNumber: '5678901234',
     customerName: 'Michael Brown',
-    type: 'savings',
-    status: 'frozen',
+    type: 'SAVINGS',
+    status: 'FROZEN',
     currency: 'USD',
     balance: 8750.25,
     availableBalance: 0,
@@ -246,7 +246,7 @@ const mockAPI = {
       setTimeout(() => {
         const index = accounts.findIndex(acc => acc.id === id);
         if (index !== -1) {
-          accounts[index].status = 'closed';
+          accounts[index].status = 'CLOSED';
           resolve();
         } else {
           reject(new Error('Account not found'));
@@ -321,7 +321,7 @@ const mockAPI = {
           // Optionally close associated accounts
           accounts.forEach(account => {
             if (account.customerId === id) {
-              account.status = 'closed';
+              account.status = 'CLOSED';
             }
           });
           resolve();

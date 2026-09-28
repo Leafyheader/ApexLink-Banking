@@ -25,6 +25,12 @@ export const login = async (req: Request, res: Response) => {
       return res.status(401).json({ message: 'Invalid username or password' });
     }
 
+    // A deactivated user (see toggleUserStatus) must not be able to log back in - otherwise
+    // deactivation does nothing at all, since this was the only place isActive was ever checked.
+    if (!user.isActive) {
+      return res.status(403).json({ message: 'This account has been deactivated. Contact an administrator.' });
+    }
+
     // Update last login
     await prisma.user.update({
       where: { id: user.id },

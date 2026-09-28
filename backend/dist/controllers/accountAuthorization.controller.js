@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.rejectOrReverseAccount = exports.approveAccount = exports.getAccountAuthorizations = void 0;
+exports.rejectOrReverseAccount = exports.bulkApproveAccounts = exports.approveAccount = exports.getAccountAuthorizations = void 0;
 const client_1 = require("@prisma/client");
 const express_validator_1 = require("express-validator");
 const prisma = new client_1.PrismaClient();
@@ -116,15 +116,23 @@ const approveAccount = async (req, res) => {
             res.status(404).json({ message: 'Account not found' });
             return;
         }
-        // Update account status to approved and set the approver
-        const account = await prisma.account.update({
-            where: { id },
+        // Atomically claim this account for approval - only succeeds if still PENDING,
+        // preventing a race with a concurrent approve/reject call from clobbering each other.
+        const claim = await prisma.account.updateMany({
+            where: { id, authorizationStatus: 'PENDING' },
             data: {
                 authorizationStatus: 'APPROVED',
                 status: 'ACTIVE',
                 approvedById: userId,
                 updatedAt: new Date()
-            },
+            }
+        });
+        if (claim.count === 0) {
+            res.status(409).json({ message: 'Account is not pending approval' });
+            return;
+        }
+        const account = await prisma.account.findUniqueOrThrow({
+            where: { id },
             include: {
                 customer: {
                     select: {
@@ -151,6 +159,32 @@ const approveAccount = async (req, res) => {
     }
 };
 exports.approveAccount = approveAccount;
+// Approve every pending account in the system
+const bulkApproveAccounts = async (req, res) => {
+    var _a;
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        if (!userId) {
+            res.status(401).json({ message: 'User not authenticated' });
+            return;
+        }
+        const result = await prisma.account.updateMany({
+            where: { authorizationStatus: 'PENDING' },
+            data: {
+                authorizationStatus: 'APPROVED',
+                status: 'ACTIVE',
+                approvedById: userId,
+                updatedAt: new Date()
+            }
+        });
+        res.json({ approvedCount: result.count });
+    }
+    catch (error) {
+        console.error('Error bulk approving accounts:', error);
+        res.status(500).json({ message: 'Failed to bulk approve accounts' });
+    }
+};
+exports.bulkApproveAccounts = bulkApproveAccounts;
 // Reject or reverse account approval
 const rejectOrReverseAccount = async (req, res) => {
     try {

@@ -136,18 +136,18 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
     };
 
     const widthClass = fullWidth ? 'w-full' : '';
-    const errorClass = error 
-      ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500' 
-      : 'border-gray-400 focus-within:ring-blue-500 focus-within:border-blue-500';
+    const errorClass = error
+      ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
+      : 'border-gray-400 focus-within:ring-blue-500 focus-within:border-blue-500 dark:border-gray-600 dark:focus-within:border-blue-400';
 
     return (
       <div className={`relative ${widthClass}`} ref={ref}>
         {label && (
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {label}
           </label>
         )}
-        
+
         <div ref={containerRef} className="relative">
           {/* Main Input/Button */}
           <button
@@ -155,37 +155,37 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
             className={`
-              w-full px-3 py-2 text-left bg-white border-2 rounded-md shadow-sm
+              w-full px-3 py-2 text-left bg-white dark:bg-dark-surface border-2 rounded-md shadow-sm
               ${errorClass}
-              ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer hover:border-gray-500'}
+              ${disabled ? 'bg-gray-100 cursor-not-allowed dark:bg-gray-800' : 'cursor-pointer hover:border-gray-500 dark:hover:border-gray-500'}
               focus:outline-none focus:ring-1
             `}
           >
             <div className="flex items-center justify-between">
-              <span className={selectedCustomer ? 'text-gray-900' : 'text-gray-500'}>
-                {selectedCustomer 
+              <span className={selectedCustomer ? 'text-gray-900 dark:text-dark-text' : 'text-gray-500 dark:text-gray-400'}>
+                {selectedCustomer
                   ? `${selectedCustomer.name} (${selectedCustomer.email || selectedCustomer.phone || 'No contact'})`
                   : placeholder
                 }
               </span>
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
           </button>          {/* Dropdown */}
           {isOpen && !disabled && (
-            <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+            <div className="absolute z-[9999] w-full mt-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-gray-600 rounded-md shadow-lg dark:shadow-gray-900/50 max-h-60 overflow-auto">
               {/* Search Input */}
-              <div className="p-2 border-b border-gray-200">
+              <div className="p-2 border-b border-gray-200 dark:border-dark-border">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                   <input
                     ref={searchInputRef}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Search customers..."
-                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 dark:focus:border-blue-400"
                   />
                 </div>
               </div>
@@ -209,18 +209,18 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
                                 handleEditCancel();
                               }
                             }}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                           />
                           <button
                             onClick={() => handleEditSave(customer.id)}
                             disabled={!editingName.trim()}
-                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed dark:bg-green-500 dark:hover:bg-green-600 dark:disabled:bg-gray-600"
                           >
                             Save
                           </button>
                           <button
                             onClick={handleEditCancel}
-                            className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                            className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600"
                           >
                             Cancel
                           </button>
@@ -228,19 +228,19 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
                       ) : (
                         // Normal Mode
                         <div
-                          className="flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer group"
+                          className="flex items-center justify-between p-2 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
                           onClick={() => handleCustomerSelect(customer)}
                         >
                           <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                            <div className="text-xs text-gray-500">
+                            <div className="text-sm font-medium text-gray-900 dark:text-dark-text">{customer.name}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400">
                               {customer.email || customer.phone || 'No contact'}
                             </div>
                           </div>
                           {allowEdit && onUpdateCustomer && (
                             <button
                               onClick={(e) => handleEditStart(customer, e)}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity"
+                              className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-opacity"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
@@ -250,13 +250,13 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
                     </div>
                   ))
                 ) : (
-                  <div className="p-3 text-sm text-gray-500 text-center">
+                  <div className="p-3 text-sm text-gray-500 dark:text-gray-400 text-center">
                     No customers found
                   </div>
                 )}
               </div>              {/* Create New Customer */}
               {allowCreate && onCreateCustomer && (searchQuery || isCreating) && (
-                <div className="border-t border-gray-200">
+                <div className="border-t border-gray-200 dark:border-dark-border">
                   {isCreating ? (
                     <div className="flex items-center p-2 space-x-2">
                       <input
@@ -272,18 +272,18 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
                           }
                         }}
                         placeholder="Enter customer name..."
-                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                       />
                       <button
                         onClick={handleCreateSave}
                         disabled={!newCustomerName.trim()}
-                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed dark:bg-green-500 dark:hover:bg-green-600 dark:disabled:bg-gray-600"
                       >
                         Save
                       </button>
                       <button
                         onClick={handleCreateCancel}
-                        className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                        className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600"
                       >
                         Cancel
                       </button>
@@ -291,7 +291,7 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
                   ) : (
                     <button
                       onClick={handleCreateStart}
-                      className="w-full flex items-center p-2 text-sm text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                      className="w-full flex items-center p-2 text-sm text-blue-600 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-400 dark:hover:bg-blue-900 dark:hover:text-blue-300"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create new customer "{searchQuery}"
@@ -303,7 +303,7 @@ const CustomerSelect = forwardRef<HTMLDivElement, CustomerSelectProps>(
           )}
         </div>
 
-        {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+        {error && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
       </div>
     );
   }

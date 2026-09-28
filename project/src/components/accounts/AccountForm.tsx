@@ -20,8 +20,8 @@ const AccountForm: React.FC<AccountFormProps> = ({
   isLoading = false,
 }) => {
   const [formData, setFormData] = useState<Partial<Account>>({
-    type: 'savings',
-    status: 'active',
+    type: 'SAVINGS',
+    status: 'ACTIVE',
     balance: 0,
     ...initialData,
   });
@@ -125,12 +125,12 @@ const AccountForm: React.FC<AccountFormProps> = ({
         <Select
           label="Account Type"
           name="type"
-          value={formData.type || 'savings'}
+          value={formData.type || 'SAVINGS'}
           onChange={handleSelectChange('type')}
           options={[
-            { value: 'savings', label: 'Savings Account' },
-            { value: 'current', label: 'Current Account' },
-            { value: 'fixed', label: 'Fixed Deposit' }
+            { value: 'SAVINGS', label: 'Savings Account' },
+            { value: 'CURRENT', label: 'Current Account' },
+            { value: 'FIXED', label: 'Fixed Deposit' }
           ]}
           fullWidth
         />
@@ -138,12 +138,12 @@ const AccountForm: React.FC<AccountFormProps> = ({
         <Select
           label="Account Status"
           name="status"
-          value={formData.status || 'active'}
+          value={formData.status || 'ACTIVE'}
           onChange={handleSelectChange('status')}
           options={[
-            { value: 'active', label: 'Active' },
-            { value: 'dormant', label: 'Dormant' },
-            { value: 'closed', label: 'Closed' }
+            { value: 'ACTIVE', label: 'Active' },
+            { value: 'DORMANT', label: 'Dormant' },
+            { value: 'CLOSED', label: 'Closed' }
           ]}
           fullWidth
         />
@@ -164,8 +164,8 @@ const AccountForm: React.FC<AccountFormProps> = ({
       />
       
       {selectedCustomer && (
-        <div className="bg-blue-50 p-4 rounded-md">
-          <p className="text-sm text-blue-700">
+        <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-md">
+          <p className="text-sm text-blue-700 dark:text-blue-200">
             Creating account for: <strong>{selectedCustomer.name}</strong>
             <br />
             Email: {selectedCustomer.email}

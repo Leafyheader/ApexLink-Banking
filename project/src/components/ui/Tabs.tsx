@@ -33,7 +33,7 @@ const Tabs: React.FC<TabsProps> = ({
 
   return (
     <div className={className}>
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-dark-border">
         <nav className="flex -mb-px space-x-8" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
@@ -42,8 +42,8 @@ const Tabs: React.FC<TabsProps> = ({
               className={`
                 py-4 px-1 border-b-2 font-medium text-sm
                 ${activeTabId === tab.id
-                  ? 'border-blue-500 text-blue-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  ? 'border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300 dark:hover:border-gray-600'
                 }
                 ${tab.disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 transition-colors duration-200

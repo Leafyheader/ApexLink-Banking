@@ -97,7 +97,7 @@ const Pagination: React.FC<PaginationProps> = ({
       </div>
       <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
             Showing page <span className="font-medium">{currentPage}</span> of{' '}
             <span className="font-medium">{totalPages}</span>
           </p>
@@ -107,16 +107,16 @@ const Pagination: React.FC<PaginationProps> = ({
             <button
               onClick={handlePrevious}
               disabled={currentPage === 1}
-              className="inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-surface text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="sr-only">Previous</span>
               <ChevronLeft className="h-5 w-5" aria-hidden="true" />
             </button>
-            
+
             {pages?.map((page, index) => (
               <React.Fragment key={index}>
                 {page === '...' ? (
-                  <span className="inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                  <span className="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-surface text-sm font-medium text-gray-700 dark:text-gray-300">
                     ...
                   </span>
                 ) : (
@@ -125,8 +125,8 @@ const Pagination: React.FC<PaginationProps> = ({
                     className={`
                       inline-flex items-center px-4 py-2 border text-sm font-medium
                       ${currentPage === page
-                        ? 'z-10 bg-blue-50 border-blue-500 text-blue-600'
-                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
+                        ? 'z-10 bg-blue-50 border-blue-500 text-blue-600 dark:bg-blue-900 dark:border-blue-400 dark:text-blue-200'
+                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50 dark:bg-dark-surface dark:border-gray-600 dark:text-gray-400 dark:hover:bg-gray-700'
                       }
                     `}
                     aria-current={currentPage === page ? 'page' : undefined}
@@ -136,11 +136,11 @@ const Pagination: React.FC<PaginationProps> = ({
                 )}
               </React.Fragment>
             ))}
-            
+
             <button
               onClick={handleNext}
               disabled={currentPage === totalPages}
-              className="inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-dark-surface text-sm font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span className="sr-only">Next</span>
               <ChevronRight className="h-5 w-5" aria-hidden="true" />

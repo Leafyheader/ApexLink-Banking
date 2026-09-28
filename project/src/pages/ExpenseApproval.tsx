@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { 
-  CheckCircle, 
-  XCircle, 
-  Clock, 
-  DollarSign, 
+import {
+  CheckCircle,
+  XCircle,
+  Clock,
+  DollarSign,
   Calendar,
   User,
   Building,
   Search,
   AlertCircle,
-  Download
+  Download,
+  Landmark
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
@@ -80,8 +81,10 @@ const ExpenseApproval: React.FC = () => {
   // Modal states
   const [isApproveModalOpen, setIsApproveModalOpen] = useState(false);
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false);
+  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [currentExpense, setCurrentExpense] = useState<Expense | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
+  const [payError, setPayError] = useState<string | null>(null);
   
   // Loading states
   const [isLoading, setIsLoading] = useState(false);
@@ -193,19 +196,33 @@ const ExpenseApproval: React.FC = () => {
     setIsRejectModalOpen(true);
   };
 
+  // Handle pay expense
+  const handlePayExpense = (expense: Expense) => {
+    setCurrentExpense(expense);
+    setPayError(null);
+    setIsPayModalOpen(true);
+  };
+
   // Confirm approve expense
   const confirmApproveExpense = async () => {
     if (!currentExpense) return;
-    
+
     try {
       setIsLoading(true);
       await expensesApi.updateStatus(currentExpense.id, 'APPROVED');
-      
-      // Refresh the data
-      await fetchExpenses();
-      
+
       setIsApproveModalOpen(false);
       setCurrentExpense(null);
+
+      // Switch to the Approved view so the expense (and its "Mark as Paid" action) stays
+      // visible instead of disappearing from the default Pending filter. If the filter is
+      // already "approved" the state won't change, so refetch explicitly in that case.
+      if (statusFilter === 'approved') {
+        await fetchExpenses();
+      } else {
+        setCurrentPage(1);
+        setStatusFilter('approved');
+      }
     } catch (error) {
       console.error('Error approving expense:', error);
       setError(handleApiError(error));
@@ -217,20 +234,42 @@ const ExpenseApproval: React.FC = () => {
   // Confirm reject expense
   const confirmRejectExpense = async () => {
     if (!currentExpense) return;
-    
+
     try {
       setIsLoading(true);
       await expensesApi.updateStatus(currentExpense.id, 'REJECTED');
-      
+
       // Refresh the data
       await fetchExpenses();
-      
+
       setIsRejectModalOpen(false);
       setCurrentExpense(null);
       setRejectionReason('');
     } catch (error) {
       console.error('Error rejecting expense:', error);
       setError(handleApiError(error));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Confirm pay expense - this is what actually debits the treasury account
+  const confirmPayExpense = async () => {
+    if (!currentExpense) return;
+
+    try {
+      setIsLoading(true);
+      setPayError(null);
+      await expensesApi.updateStatus(currentExpense.id, 'PAID');
+
+      // Refresh the data
+      await fetchExpenses();
+
+      setIsPayModalOpen(false);
+      setCurrentExpense(null);
+    } catch (error) {
+      console.error('Error paying expense:', error);
+      setPayError(handleApiError(error));
     } finally {
       setIsLoading(false);
     }
@@ -288,7 +327,7 @@ const ExpenseApproval: React.FC = () => {
   if (isPageLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading expense approvals...</div>
+        <div className="text-gray-500 dark:text-dark-text">Loading expense approvals...</div>
       </div>
     );
   }
@@ -297,8 +336,8 @@ const ExpenseApproval: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center h-64">
         <AlertCircle className="w-12 h-12 text-red-600 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
-        <p className="text-lg text-gray-600 mb-8">{error}</p>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-dark-text mb-4">Error</h1>
+        <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">{error}</p>
         <Button onClick={fetchExpenses}>Try Again</Button>
       </div>
     );
@@ -309,8 +348,8 @@ const ExpenseApproval: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Expense Approval</h1>
-          <p className="text-gray-600">Review and approve expense requests</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Expense Approval</h1>
+          <p className="text-gray-600 dark:text-dark-text">Review and approve expense requests</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -364,22 +403,22 @@ const ExpenseApproval: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending Approval</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Pending Approval</p>
               <p className="text-2xl font-bold text-orange-600">{summary.pendingExpenses}</p>
-              <p className="text-sm text-gray-500">{formatCurrency(summary.pendingAmount, 'GHS', 'en-GH', 2)}</p>
+              <p className="text-sm text-gray-500 dark:text-gray-300">{formatCurrency(summary.pendingAmount, 'GHS', 'en-GH', 2)}</p>
             </div>
             <div className="bg-orange-100 p-2 rounded-lg">
               <Clock className="h-6 w-6 text-orange-600" />
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Approved</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Approved</p>
               <p className="text-2xl font-bold text-green-600">{summary.approvedExpenses}</p>
             </div>
             <div className="bg-green-100 p-2 rounded-lg">
@@ -387,10 +426,10 @@ const ExpenseApproval: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Rejected</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Rejected</p>
               <p className="text-2xl font-bold text-red-600">{summary.rejectedExpenses}</p>
             </div>
             <div className="bg-red-100 p-2 rounded-lg">
@@ -401,7 +440,7 @@ const ExpenseApproval: React.FC = () => {
       </div>
 
       {/* Expenses Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow overflow-hidden dark:border dark:border-dark-border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -422,15 +461,15 @@ const ExpenseApproval: React.FC = () => {
               <TableRow key={expense.id}>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-gray-500" />
-                    <span className="text-sm">{formatDate(expense.date)}</span>
+                    <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    <span className="text-sm dark:text-dark-text">{formatDate(expense.date)}</span>
                   </div>
                 </TableCell>
                 <TableCell>
                   <div>
-                    <p className="font-medium text-gray-900">{expense.description}</p>
+                    <p className="font-medium text-gray-900 dark:text-dark-text">{expense.description}</p>
                     {expense.referenceNumber && (
-                      <p className="text-sm text-gray-500">Ref: {expense.referenceNumber}</p>
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Ref: {expense.referenceNumber}</p>
                     )}
                   </div>
                 </TableCell>
@@ -439,21 +478,21 @@ const ExpenseApproval: React.FC = () => {
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <Building className="h-4 w-4 text-gray-500" />
-                    <span>{expense.department}</span>
+                    <Building className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    <span className="dark:text-dark-text">{expense.department}</span>
                   </div>
                 </TableCell>
-                <TableCell>{expense.vendor}</TableCell>
+                <TableCell className="dark:text-dark-text">{expense.vendor}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <DollarSign className="h-4 w-4 text-gray-500" />
-                    <span className="font-semibold">{formatCurrency(parseFloat(expense.amount), 'GHS', 'en-GH', 2)}</span>
+                    <DollarSign className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    <span className="font-semibold dark:text-dark-text">{formatCurrency(parseFloat(expense.amount), 'GHS', 'en-GH', 2)}</span>
                   </div>
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <User className="h-4 w-4 text-gray-500" />
-                    <span>{expense.createdByUser.name}</span>
+                    <User className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                    <span className="dark:text-dark-text">{expense.createdByUser.name}</span>
                   </div>
                 </TableCell>
                 <TableCell>
@@ -464,15 +503,15 @@ const ExpenseApproval: React.FC = () => {
                 <TableCell>
                   {expense.status === 'APPROVED' && expense.approvedByUser ? (
                     <div className="text-sm">
-                      <div className="font-medium">{expense.approvedByUser.name}</div>
+                      <div className="font-medium dark:text-dark-text">{expense.approvedByUser.name}</div>
                       {expense.approvedDate && (
-                        <div className="text-gray-500">
+                        <div className="text-gray-500 dark:text-gray-400">
                           {formatDate(expense.approvedDate)}
                         </div>
                       )}
                     </div>
                   ) : (
-                    <span className="text-gray-400">-</span>
+                    <span className="text-gray-400 dark:text-gray-500">-</span>
                   )}
                 </TableCell>
                 <TableCell>
@@ -498,10 +537,14 @@ const ExpenseApproval: React.FC = () => {
                       </>
                     )}
                     {expense.status === 'APPROVED' && (
-                      <Badge variant="success">
-                        <CheckCircle size={14} className="mr-1" />
-                        Approved
-                      </Badge>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        leftIcon={<Landmark size={16} />}
+                        onClick={() => handlePayExpense(expense)}
+                      >
+                        Mark as Paid
+                      </Button>
                     )}
                     {expense.status === 'REJECTED' && (
                       <Badge variant="danger">
@@ -516,7 +559,7 @@ const ExpenseApproval: React.FC = () => {
 
             {expenses.length === 0 && (
               <TableRow>
-                <TableCell colSpan={10} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={10} className="text-center py-6 text-gray-500 dark:text-dark-text">
                   {searchQuery || statusFilter !== 'all' || categoryFilter !== 'all'
                     ? 'No expenses found matching your criteria'
                     : 'No expenses found'}
@@ -563,36 +606,36 @@ const ExpenseApproval: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to approve the following expense?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="font-medium">Description:</span>
-                  <p>{currentExpense.description}</p>
+                  <span className="font-medium dark:text-dark-text">Description:</span>
+                  <p className="dark:text-dark-text">{currentExpense.description}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Amount:</span>
+                  <span className="font-medium dark:text-dark-text">Amount:</span>
                   <p className="text-lg font-semibold text-green-600">
                     {formatCurrency(parseFloat(currentExpense.amount), 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
                 <div>
-                  <span className="font-medium">Category:</span>
-                  <p>{currentExpense.category}</p>
+                  <span className="font-medium dark:text-dark-text">Category:</span>
+                  <p className="dark:text-dark-text">{currentExpense.category}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Vendor:</span>
-                  <p>{currentExpense.vendor}</p>
+                  <span className="font-medium dark:text-dark-text">Vendor:</span>
+                  <p className="dark:text-dark-text">{currentExpense.vendor}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Department:</span>
-                  <p>{currentExpense.department}</p>
+                  <span className="font-medium dark:text-dark-text">Department:</span>
+                  <p className="dark:text-dark-text">{currentExpense.department}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Requested By:</span>
-                  <p>{currentExpense.createdByUser.name}</p>
+                  <span className="font-medium dark:text-dark-text">Requested By:</span>
+                  <p className="dark:text-dark-text">{currentExpense.createdByUser.name}</p>
                 </div>
               </div>
             </div>
@@ -627,44 +670,106 @@ const ExpenseApproval: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to reject the following expense?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="font-medium">Description:</span>
-                  <p>{currentExpense.description}</p>
+                  <span className="font-medium dark:text-dark-text">Description:</span>
+                  <p className="dark:text-dark-text">{currentExpense.description}</p>
                 </div>
                 <div>
-                  <span className="font-medium">Amount:</span>
-                  <p className="text-lg font-semibold">
+                  <span className="font-medium dark:text-dark-text">Amount:</span>
+                  <p className="text-lg font-semibold dark:text-dark-text">
                     {formatCurrency(parseFloat(currentExpense.amount), 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
                 <div>
-                  <span className="font-medium">Requested By:</span>
-                  <p>{currentExpense.createdByUser.name}</p>
+                  <span className="font-medium dark:text-dark-text">Requested By:</span>
+                  <p className="dark:text-dark-text">{currentExpense.createdByUser.name}</p>
                 </div>
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-2">
                 Rejection Reason
               </label>
               <textarea
-                className="w-full p-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
+                className="w-full p-2 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md focus:ring-blue-500 focus:border-blue-500"
                 rows={3}
                 placeholder="Please provide a reason for rejection..."
                 value={rejectionReason}
                 onChange={(e) => setRejectionReason(e.target.value)}
               />
             </div>
-            <div className="bg-yellow-50 p-4 rounded-md">
-              <p className="text-sm text-yellow-700">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-md">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
                 <strong>Note:</strong> The requester will be notified of this rejection and the reason provided.
               </p>
             </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Mark as Paid Modal */}
+      {currentExpense && (
+        <Modal
+          isOpen={isPayModalOpen}
+          onClose={() => setIsPayModalOpen(false)}
+          title="Mark Expense as Paid"
+          footer={
+            <div className="flex space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsPayModalOpen(false)}
+                disabled={isLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={confirmPayExpense}
+                isLoading={isLoading}
+                leftIcon={<Landmark size={16} />}
+              >
+                Mark as Paid
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-gray-700 dark:text-dark-text">
+              This will debit the treasury account for the amount below and record the payment.
+              This cannot be undone.
+            </p>
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="font-medium dark:text-dark-text">Description:</span>
+                  <p className="dark:text-dark-text">{currentExpense.description}</p>
+                </div>
+                <div>
+                  <span className="font-medium dark:text-dark-text">Amount:</span>
+                  <p className="text-lg font-semibold text-blue-600">
+                    {formatCurrency(parseFloat(currentExpense.amount), 'GHS', 'en-GH', 2)}
+                  </p>
+                </div>
+                <div>
+                  <span className="font-medium dark:text-dark-text">Vendor:</span>
+                  <p className="dark:text-dark-text">{currentExpense.vendor}</p>
+                </div>
+                <div>
+                  <span className="font-medium dark:text-dark-text">Department:</span>
+                  <p className="dark:text-dark-text">{currentExpense.department}</p>
+                </div>
+              </div>
+            </div>
+            {payError && (
+              <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-md">
+                <p className="text-sm text-red-700 dark:text-red-300">{payError}</p>
+              </div>
+            )}
           </div>
         </Modal>
       )}

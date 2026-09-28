@@ -39,6 +39,8 @@ const WithdrawalAuthorization: React.FC = () => {
   const [isReverseModalOpen, setIsReverseModalOpen] = useState(false);
   const [isViewModalOpen, setIsViewModalOpen] = useState(false);
   const [currentWithdrawal, setCurrentWithdrawal] = useState<WithdrawalAuthorizationType | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [reverseReason, setReverseReason] = useState('');
     // Loading state
   const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(true);
@@ -126,29 +128,33 @@ const WithdrawalAuthorization: React.FC = () => {
   // Handle reject withdrawal
   const handleRejectWithdrawal = (withdrawal: WithdrawalAuthorizationType) => {
     setCurrentWithdrawal(withdrawal);
+    setRejectReason('');
     setIsRejectModalOpen(true);
   };
 
   // Handle reverse withdrawal
   const handleReverseWithdrawal = (withdrawal: WithdrawalAuthorizationType) => {
     setCurrentWithdrawal(withdrawal);
+    setReverseReason('');
     setIsReverseModalOpen(true);
   };
   // Confirm approve withdrawal
   const confirmApproveWithdrawal = async () => {
     if (!currentWithdrawal) return;
-    
+
     try {
       setIsLoading(true);
       await withdrawalAuthorizationApi.approveWithdrawalAuthorization(currentWithdrawal.id);
-      
+
       // Refresh the data
       await fetchWithdrawalAuthorizations();
-      
+
       setIsApproveModalOpen(false);
       setCurrentWithdrawal(null);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('Error approving withdrawal:', error);
+      const message = (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to approve withdrawal. Please try again.';
+      alert(message);
     } finally {
       setIsLoading(false);
     }
@@ -156,18 +162,26 @@ const WithdrawalAuthorization: React.FC = () => {
   // Confirm reject withdrawal
   const confirmRejectWithdrawal = async () => {
     if (!currentWithdrawal) return;
-    
+
+    if (!rejectReason.trim()) {
+      alert('Please provide a reason for rejection');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      await withdrawalAuthorizationApi.rejectWithdrawalAuthorization(currentWithdrawal.id, 'Rejected by administrator');
-      
+      await withdrawalAuthorizationApi.rejectWithdrawalAuthorization(currentWithdrawal.id, rejectReason);
+
       // Refresh the data
       await fetchWithdrawalAuthorizations();
-      
+
       setIsRejectModalOpen(false);
       setCurrentWithdrawal(null);
-    } catch (error) {
+      setRejectReason('');
+    } catch (error: unknown) {
       console.error('Error rejecting withdrawal:', error);
+      const message = (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to reject withdrawal. Please try again.';
+      alert(message);
     } finally {
       setIsLoading(false);
     }
@@ -176,18 +190,26 @@ const WithdrawalAuthorization: React.FC = () => {
   // Confirm reverse withdrawal
   const confirmReverseWithdrawal = async () => {
     if (!currentWithdrawal) return;
-    
+
+    if (!reverseReason.trim()) {
+      alert('Please provide a reason for reversal');
+      return;
+    }
+
     try {
       setIsLoading(true);
-      await withdrawalAuthorizationApi.reverseWithdrawalAuthorization(currentWithdrawal.id, 'Reversed by administrator');
-      
+      await withdrawalAuthorizationApi.reverseWithdrawalAuthorization(currentWithdrawal.id, reverseReason);
+
       // Refresh the data
       await fetchWithdrawalAuthorizations();
-      
+
       setIsReverseModalOpen(false);
       setCurrentWithdrawal(null);
-    } catch (error) {
+      setReverseReason('');
+    } catch (error: unknown) {
       console.error('Error reversing withdrawal:', error);
+      const message = (error as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to reverse withdrawal. Please try again.';
+      alert(message);
     } finally {
       setIsLoading(false);
     }
@@ -212,6 +234,8 @@ const WithdrawalAuthorization: React.FC = () => {
     switch (type) {
       case 'withdrawal':
         return 'Withdrawal';
+      case 'withdrawal-shares':
+        return 'Shares Withdrawal';
       case 'transfer':
         return 'Transfer';
       default:
@@ -224,6 +248,8 @@ const WithdrawalAuthorization: React.FC = () => {
     switch (type) {
       case 'withdrawal':
         return <ArrowDownCircle size={16} className="text-red-500" />;
+      case 'withdrawal-shares':
+        return <ArrowDownCircle size={16} className="text-purple-500" />;
       case 'transfer':
         return <ArrowLeftRight size={16} className="text-blue-500" />;
       default:
@@ -242,6 +268,7 @@ const WithdrawalAuthorization: React.FC = () => {
   const typeFilterOptions = [
     { value: 'all', label: 'All Types' },
     { value: 'withdrawal', label: 'Withdrawals' },
+    { value: 'withdrawal-shares', label: 'Shares Withdrawals' },
     { value: 'transfer', label: 'Transfers' },
   ];
 
@@ -676,6 +703,20 @@ const WithdrawalAuthorization: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div>
+              <label htmlFor="rejectReason" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-2">
+                Rejection Reason *
+              </label>
+              <textarea
+                id="rejectReason"
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={4}
+                placeholder="Please provide a reason for rejecting this request..."
+                required
+              />
+            </div>
             <div className="bg-yellow-50 p-4 rounded-md">
               <p className="text-sm text-yellow-700">
                 <strong>Note:</strong> Rejecting this request will prevent the transaction from being processed.
@@ -735,6 +776,20 @@ const WithdrawalAuthorization: React.FC = () => {
                 </div>
               </div>
             </div>
+            <div>
+              <label htmlFor="reverseReason" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-2">
+                Reversal Reason *
+              </label>
+              <textarea
+                id="reverseReason"
+                value={reverseReason}
+                onChange={(e) => setReverseReason(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                rows={4}
+                placeholder="Please provide a reason for reversing this transaction..."
+                required
+              />
+            </div>
             <div className="bg-red-50 p-4 rounded-md">
               <p className="text-sm text-red-700">
                 <strong>Warning:</strong> Reversing this transaction will:
@@ -742,8 +797,8 @@ const WithdrawalAuthorization: React.FC = () => {
               <ul className="text-sm text-red-700 mt-2 list-disc list-inside">
                 <li>Add the amount back to the customer's account</li>
                 <li>Create a reversal transaction record</li>
-                {currentWithdrawal.type === 'withdrawal' && (
-                  <li>Refund the 5 GHS service charge</li>
+                {(currentWithdrawal.type === 'withdrawal' || currentWithdrawal.type === 'withdrawal-shares') && (
+                  <li>Refund the service charge that was applied at the time of this withdrawal</li>
                 )}
                 <li>Mark this transaction as reversed (cannot be undone)</li>
               </ul>

@@ -5,29 +5,68 @@ const prisma = new PrismaClient();
 // Generate next customer ID in format CUST000000001
 export async function generateCustomerId(): Promise<string> {
   try {
-    // Get the count of existing customers to determine next ID
-    const customerCount = await prisma.customer.count();
-    const nextNumber = customerCount + 1;
-    
-    // Format as CUST000000001 (pad with zeros to make it 9 digits)
-    const paddedNumber = nextNumber.toString().padStart(9, '0');
-    return `CUST${paddedNumber}`;
+    // Base it on the highest existing number, not a row count - a count drops when customers
+    // are deleted, which would otherwise regenerate an already-taken number and collide on the
+    // unique constraint. Zero-padding to a fixed width keeps string ordering == numeric ordering.
+    let customerNumber: string;
+    let exists = true;
+
+    while (exists) {
+      const lastCustomer = await prisma.customer.findFirst({
+        where: { customerNumber: { startsWith: 'CUST' } },
+        orderBy: { customerNumber: 'desc' }
+      });
+
+      const lastNumber = lastCustomer
+        ? parseInt(lastCustomer.customerNumber.replace('CUST', ''), 10) || 0
+        : 0;
+      const paddedNumber = (lastNumber + 1).toString().padStart(9, '0');
+      customerNumber = `CUST${paddedNumber}`;
+
+      const existing = await prisma.customer.findUnique({ where: { customerNumber } });
+      exists = !!existing;
+    }
+
+    return customerNumber!;
   } catch (error) {
     console.error('Error generating customer ID:', error);
     throw new Error('Failed to generate customer ID');
   }
 }
 
-// Generate next account number in format ACC001000001
+// Generate next account number in format ACC0000001. Based on the highest existing numeric
+// suffix (across all ACC-prefixed accounts), not a row count - a count drops when accounts
+// are deleted, which would otherwise regenerate an already-taken number and collide on the
+// unique constraint. Existing data has inconsistent zero-padding widths, so this compares by
+// parsed numeric value rather than string sort, matching accounts.controller.ts's own
+// next-account-number preview logic.
 export async function generateAccountNumber(): Promise<string> {
   try {
-    // Get the count of existing accounts to determine next ID
-    const accountCount = await prisma.account.count();
-    const nextNumber = accountCount + 1;
-    
-    // Format as ACC001000001 (pad with zeros to make it 6 digits after 001)
-    const paddedNumber = nextNumber.toString().padStart(6, '0');
-    return `ACC001${paddedNumber}`;
+    const accounts = await prisma.account.findMany({
+      where: { accountNumber: { startsWith: 'ACC' } },
+      select: { accountNumber: true }
+    });
+
+    let maxNumber = 0;
+    for (const account of accounts) {
+      const parsed = parseInt(account.accountNumber.replace(/\D/g, ''), 10);
+      if (!isNaN(parsed) && parsed > maxNumber) {
+        maxNumber = parsed;
+      }
+    }
+
+    let accountNumber: string;
+    let exists = true;
+    let candidate = maxNumber;
+
+    while (exists) {
+      candidate += 1;
+      accountNumber = `ACC${candidate.toString().padStart(7, '0')}`;
+      const existing = await prisma.account.findUnique({ where: { accountNumber } });
+      exists = !!existing;
+    }
+
+    return accountNumber!;
   } catch (error) {
     console.error('Error generating account number:', error);
     throw new Error('Failed to generate account number');

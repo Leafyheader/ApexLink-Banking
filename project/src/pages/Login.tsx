@@ -91,7 +91,7 @@ const Login: React.FC = () => {
       <div className="relative z-10 min-h-screen flex items-center justify-center px-6">
         <div className="w-full max-w-md">
           {/* Login Card */}
-          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
+          <div className="bg-white dark:bg-dark-surface rounded-2xl shadow-xl dark:shadow-gray-800/25 border border-gray-100 dark:border-dark-border overflow-hidden">
             {/* Header */}
             <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-12 text-center relative overflow-hidden">
               {/* Decorative elements in header */}
@@ -114,18 +114,18 @@ const Login: React.FC = () => {
             </div>
 
             {/* Form */}
-            <div className="px-8 py-8 bg-gradient-to-b from-white to-gray-50">
+            <div className="px-8 py-8 bg-gradient-to-b from-white to-gray-50 dark:from-dark-surface dark:to-dark-bg">
               {/* Error Message */}
               {error && (
-                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center animate-pulse">
+                <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center animate-pulse dark:bg-red-900 dark:border-red-800">
                   <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
-                  <span className="text-sm text-red-700">{error}</span>
+                  <span className="text-sm text-red-700 dark:text-red-200">{error}</span>
                 </div>
               )}
-              
+
               <form onSubmit={handleSubmit} className="space-y-6">                {/* Username Field */}
                 <div>
-                  <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Username
                   </label>
                   <Input
@@ -144,7 +144,7 @@ const Login: React.FC = () => {
 
                 {/* Password Field */}
                 <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
+                  <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                     Password
                   </label>
                   <div className="relative">
@@ -163,7 +163,7 @@ const Login: React.FC = () => {
                     <button
                       type="button"
                       onClick={togglePasswordVisibility}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors"
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
@@ -177,13 +177,13 @@ const Login: React.FC = () => {
                       type="checkbox"
                       checked={rememberMe}
                       onChange={(e) => setRememberMe(e.target.checked)}
-                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 dark:border-gray-700 rounded"
                     />
-                    <span className="ml-2 text-sm text-gray-600">Remember me</span>
+                    <span className="ml-2 text-sm text-gray-600 dark:text-gray-300">Remember me</span>
                   </label>
                   <button
                     type="button"
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    className="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium"
                     onClick={() => alert('Forgot password functionality coming soon!')}
                   >
                     Forgot password?
@@ -207,7 +207,7 @@ const Login: React.FC = () => {
               <div className="mt-8 mb-6">
                 <div className="relative">
                   <div className="absolute inset-0 flex items-center">
-                    <div className="w-full border-t border-gray-200" />
+                    <div className="w-full border-t border-gray-200 dark:border-dark-border" />
                   </div>
                   <div className="relative flex justify-center text-sm">
                     
@@ -220,8 +220,8 @@ const Login: React.FC = () => {
             </div>
 
             {/* Footer */}
-            <div className="bg-gradient-to-r from-gray-50 to-gray-100 px-8 py-4 border-t border-gray-100">
-              <p className="text-center text-sm text-gray-600 flex items-center justify-center">
+            <div className="bg-gradient-to-r from-gray-50 to-gray-100 dark:from-dark-surface dark:to-dark-bg px-8 py-4 border-t border-gray-100 dark:border-dark-border">
+              <p className="text-center text-sm text-gray-600 dark:text-gray-300 flex items-center justify-center">
                 <Lock className="h-3 w-3 mr-1" />
                 Protected by enterprise-grade security
               </p>

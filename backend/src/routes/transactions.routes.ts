@@ -1,11 +1,12 @@
 import express, { RequestHandler } from 'express';
 import { authenticateToken } from '../middleware/auth';
-import { 
-  getTransactions, 
-  getTransactionById, 
+import {
+  getTransactions,
+  getTransactionById,
   createTransaction,
   createTransactionWithLedger,
-  updateTransactionStatus, 
+  updateTransaction,
+  updateTransactionStatus,
   getTransactionStats,
   getAccountNotifications,
   getCustomerGuaranteeInfo,
@@ -29,6 +30,9 @@ router.post('/', authenticateToken, createTransaction as RequestHandler);
 
 // POST /api/transactions/ledger - Create a new transaction using ledger system
 router.post('/ledger', authenticateToken, createTransactionWithLedger as RequestHandler);
+
+// PUT /api/transactions/:id - Edit a pending/failed transaction's details
+router.put('/:id', authenticateToken, updateTransaction as RequestHandler);
 
 // PUT /api/transactions/:id/status - Update transaction status
 router.put('/:id/status', authenticateToken, updateTransactionStatus as RequestHandler);

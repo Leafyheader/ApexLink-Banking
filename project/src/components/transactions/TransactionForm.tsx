@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import Select from '../ui/Select';
@@ -6,14 +6,23 @@ import AccountSelect from '../ui/AccountSelect';
 import AccountNotificationsPanel from './AccountNotificationsPanel';
 import { Account, Transaction } from '../../types';
 import { formatCurrency } from '../../lib/utils';
+import { settingsApi } from '../../lib/api';
 
 interface TransactionFormProps {
   accounts: Account[];
   onSubmit: (data: Partial<Transaction>) => void;
   onCancel: () => void;
   isLoading?: boolean;
-  transactionType?: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares';
+  transactionType?: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares' | 'withdrawal-shares';
 }
+
+// A LOAN account's legacy `balance` field only ever tracks principal, so Math.abs(balance)
+// understates what's actually still owed until the loan is nearly paid off (interest and the
+// guarantor-backed share are also part of the real remaining debt). `loanOutstandingBalance`
+// is the true totalPayable-minus-totalPaid figure kept in sync on every repayment - prefer it,
+// falling back to the legacy balance only for accounts loaded before the backend exposed it.
+const getLoanOutstandingDebt = (account: Account): number =>
+  account.loanOutstandingBalance ?? Math.abs(account.balance);
 
 const TransactionForm: React.FC<TransactionFormProps> = ({
   accounts,
@@ -29,6 +38,13 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [withdrawalFee, setWithdrawalFee] = useState<number | null>(null);
+
+  useEffect(() => {
+    settingsApi.get()
+      .then((settings) => setWithdrawalFee(settings.withdrawalFee))
+      .catch(() => setWithdrawalFee(null));
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
@@ -94,10 +110,30 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       newErrors.amount = 'Amount must be greater than zero';
     }
     
+    // Withdrawals (savings or shares) also deduct a processing charge on top of the requested
+    // amount - checking against the requested amount alone lets a request for exactly the full
+    // balance through here, only for the approver to reject it later once the fee is added in.
+    const fee = withdrawalFee ?? 0;
+
     if (formData.type === 'withdrawal') {
       const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
-      if (account && formData.amount && formData.amount > account.balance) {
-        newErrors.amount = 'Insufficient funds for withdrawal';
+      if (account && formData.amount && formData.amount + fee > account.balance) {
+        newErrors.amount = fee > 0
+          ? `Insufficient funds for withdrawal (amount plus GH₵${fee.toFixed(2)} processing charge exceeds available balance)`
+          : 'Insufficient funds for withdrawal';
+      }
+    }
+
+    if (formData.type === 'withdrawal-shares') {
+      const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
+      if (account) {
+        if (typeof account.shareBalance === 'undefined') {
+          newErrors.accountId = 'Shares withdrawals can only be made from accounts with shares capability';
+        } else if (formData.amount && formData.amount + fee > account.shareBalance) {
+          newErrors.amount = fee > 0
+            ? `Insufficient share balance for withdrawal (amount plus GH₵${fee.toFixed(2)} processing charge exceeds share balance)`
+            : 'Insufficient share balance for withdrawal';
+        }
       }
     }
 
@@ -111,7 +147,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
         
         // For loan accounts, check if repayment amount doesn't exceed outstanding debt
         if (formData.amount) {
-          const outstandingDebt = Math.abs(account.balance); // Convert negative balance to positive debt
+          const outstandingDebt = getLoanOutstandingDebt(account);
           if (formData.amount > outstandingDebt) {
             newErrors.amount = `Repayment amount exceeds outstanding debt of ${formatCurrency(outstandingDebt, 'GHS', 'en-GH', 2)}`;
           }
@@ -183,13 +219,24 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       if (formData.type === 'deposit-shares') {
         const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
         if (account) {
-          transactionData.description = formData.description || 
+          transactionData.description = formData.description ||
             `Shares deposit to account ${account.accountNumber}`;
-          
+
           transactionData.reference = `SHR-${Date.now()}`;
         }
       }
-      
+
+      // For withdrawal-shares, create special description and reference
+      if (formData.type === 'withdrawal-shares') {
+        const account = Array.isArray(accounts) ? accounts.find(a => a.id === formData.accountId) : null;
+        if (account) {
+          transactionData.description = formData.description ||
+            `Shares withdrawal from account ${account.accountNumber}`;
+
+          transactionData.reference = `WSHR-${Date.now()}`;
+        }
+      }
+
       onSubmit(transactionData);
     }
   };
@@ -209,6 +256,7 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
             { value: 'deposit', label: 'Deposit' },
             { value: 'deposit-shares', label: 'Deposit Shares' },
             { value: 'withdrawal', label: 'Withdrawal' },
+            { value: 'withdrawal-shares', label: 'Withdrawal Shares' },
             { value: 'transfer', label: 'Transfer' },
             { value: 'loan-repayment', label: 'Loan Repayment' }
           ]}
@@ -217,25 +265,25 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       )}
 
       {/* Show approval notice for withdrawals and transfers */}
-      {(formData.type === 'withdrawal' || formData.type === 'transfer') && (
-        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+      {(formData.type === 'withdrawal' || formData.type === 'withdrawal-shares' || formData.type === 'transfer') && (
+        <div className="bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700 rounded-lg p-4">
           <div className="flex items-start space-x-3">
             <div className="flex-shrink-0">
-              <svg className="h-5 w-5 text-amber-600" viewBox="0 0 20 20" fill="currentColor">
+              <svg className="h-5 w-5 text-amber-600 dark:text-amber-400" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
             </div>
             <div>
-              <h3 className="text-sm font-medium text-amber-800">
+              <h3 className="text-sm font-medium text-amber-800 dark:text-amber-200">
                 Authorization Required
               </h3>
-              <p className="text-sm text-amber-700 mt-1">
-                {formData.type === 'withdrawal' 
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                {formData.type === 'withdrawal' || formData.type === 'withdrawal-shares'
                   ? 'This withdrawal request will be sent for approval before processing.'
                   : 'This transfer request will be sent for approval before processing.'
                 }
               </p>
-              <p className="text-xs text-amber-600 mt-1">
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                 You can track the approval status in the Withdrawal Authorization section.
               </p>
             </div>
@@ -327,12 +375,12 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                 });
               }
             }}
-            filter={formData.type === 'loan-repayment' ? (account) => account.type === 'LOAN' 
-                   : formData.type === 'deposit-shares' ? (account) => typeof account.shareBalance !== 'undefined'
+            filter={formData.type === 'loan-repayment' ? (account) => account.type === 'LOAN'
+                   : (formData.type === 'deposit-shares' || formData.type === 'withdrawal-shares') ? (account) => typeof account.shareBalance !== 'undefined'
                    : undefined}
             error={errors.accountId}
-            placeholder={formData.type === 'loan-repayment' ? "Search loan accounts..." 
-                       : formData.type === 'deposit-shares' ? "Search shares accounts..."
+            placeholder={formData.type === 'loan-repayment' ? "Search loan accounts..."
+                       : (formData.type === 'deposit-shares' || formData.type === 'withdrawal-shares') ? "Search shares accounts..."
                        : "Search accounts or customers..."}
             fullWidth
           />
@@ -373,15 +421,15 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
       
       {selectedAccount && (
         <div className="space-y-3">
-          <div className="bg-blue-50 p-4 rounded-md">
-            <p className="text-sm text-blue-700">
+          <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-md">
+            <p className="text-sm text-blue-700 dark:text-blue-200">
               Selected Account: <strong>{selectedAccount.accountNumber}</strong> ({selectedAccount.type})
               <br />
               Customer: {selectedAccount.customerName}
               <br />
               {selectedAccount.type === 'LOAN' ? (
-                <>Outstanding Debt: <strong>{formatCurrency(Math.abs(selectedAccount.balance), 'GHS', 'en-GH', 0)}</strong></>
-              ) : formData.type === 'deposit-shares' ? (
+                <>Outstanding Debt: <strong>{formatCurrency(getLoanOutstandingDebt(selectedAccount), 'GHS', 'en-GH', 0)}</strong></>
+              ) : formData.type === 'deposit-shares' || formData.type === 'withdrawal-shares' ? (
                 <>
                   Share Balance: <strong>{formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}</strong>
                   <br />
@@ -394,27 +442,24 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           </div>
           
           {formData.type === 'loan-repayment' && selectedAccount.type === 'LOAN' && (
-            <div className="bg-green-50 border border-green-200 p-4 rounded-md">
-              <p className="text-sm text-green-700">
+            <div className="bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 p-4 rounded-md">
+              <p className="text-sm text-green-700 dark:text-green-200">
                 <strong>💡 Loan Repayment with Guarantor Disbursement:</strong>
                 <br />
-                • <strong>50%</strong> of payment reduces your outstanding debt
+                • Payments first cover the loan's <strong>interest</strong> and reimburse the <strong>guarantors</strong> who backed it
                 <br />
-                • <strong>50%</strong> is disbursed equally to guarantors who provided the initial guarantee
+                • Once that portion is fully paid, the rest of every payment reduces the customer's own remaining principal
                 <br />
-                • Maximum payment: {formatCurrency(Math.abs(selectedAccount.balance), 'GHS', 'en-GH', 0)}
+                • Maximum payment: {formatCurrency(getLoanOutstandingDebt(selectedAccount), 'GHS', 'en-GH', 0)}
                 <br />
                 • Any amount above the debt will be rejected
-                <br />
-                <br />
-                <em>Example: GH₵100 payment = GH₵50 debt reduction + GH₵50 distributed to guarantors</em>
               </p>
             </div>
           )}
 
           {formData.type === 'deposit-shares' && typeof selectedAccount.shareBalance !== 'undefined' && (
-            <div className="bg-purple-50 border border-purple-200 p-4 rounded-md">
-              <p className="text-sm text-purple-700">
+            <div className="bg-purple-50 dark:bg-purple-900 border border-purple-200 dark:border-purple-700 p-4 rounded-md">
+              <p className="text-sm text-purple-700 dark:text-purple-200">
                 <strong>💎 Shares Deposit:</strong>
                 <br />
                 • This deposit will be added to the account's share balance
@@ -427,6 +472,22 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
                 <br />
                 <br />
                 <em>Note: Share deposits are typically long-term investments in the institution</em>
+              </p>
+            </div>
+          )}
+
+          {formData.type === 'withdrawal-shares' && typeof selectedAccount.shareBalance !== 'undefined' && (
+            <div className="bg-purple-50 dark:bg-purple-900 border border-purple-200 dark:border-purple-700 p-4 rounded-md">
+              <p className="text-sm text-purple-700 dark:text-purple-200">
+                <strong>💎 Shares Withdrawal:</strong>
+                <br />
+                • This withdrawal will be deducted from the account's share balance
+                <br />
+                • Current Share Balance: {formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}
+                <br />
+                • {withdrawalFee !== null ? `A GH₵${withdrawalFee.toFixed(2)} processing charge applies` : 'A processing charge applies'}, also deducted from the share balance
+                <br />
+                • Maximum withdrawal: {formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}
               </p>
             </div>
           )}
@@ -452,23 +513,25 @@ const TransactionForm: React.FC<TransactionFormProps> = ({
           type="submit"
           isLoading={isLoading}
           variant={
-            formData.type === 'deposit' 
-              ? 'primary' 
+            formData.type === 'deposit'
+              ? 'primary'
               : formData.type === 'deposit-shares'
                 ? 'primary'
-              : formData.type === 'withdrawal' 
-                ? 'warning' 
+              : formData.type === 'withdrawal' || formData.type === 'withdrawal-shares'
+                ? 'warning'
                 : formData.type === 'loan-repayment'
                   ? 'success'
                   : 'secondary'
           }
         >
-          {formData.type === 'deposit' 
-            ? 'Make Deposit' 
+          {formData.type === 'deposit'
+            ? 'Make Deposit'
             : formData.type === 'deposit-shares'
               ? 'Make Shares Deposit'
-            : formData.type === 'withdrawal' 
-              ? 'Request Withdrawal' 
+            : formData.type === 'withdrawal'
+              ? 'Request Withdrawal'
+              : formData.type === 'withdrawal-shares'
+                ? 'Request Shares Withdrawal'
               : formData.type === 'loan-repayment'
                 ? 'Process Loan Repayment'
                 : 'Request Transfer'}

@@ -45,9 +45,9 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
   };
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800">Recent Activity</h3>
+    <div className="bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25 overflow-hidden">
+      <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-border">
+        <h3 className="text-lg font-semibold text-gray-800 dark:text-dark-text">Recent Activity</h3>
       </div>
       <div className="overflow-x-auto">
         <Table>
@@ -66,7 +66,7 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
             {transactions.map((transaction) => (
               <TableRow key={transaction.id}>
                 <TableCell className="font-medium">{transaction.accountNumber}</TableCell>
-                <TableCell className="text-gray-600">
+                <TableCell className="text-gray-600 dark:text-gray-300">
                   {transaction.customerName || 'N/A'}
                 </TableCell>
                 <TableCell>
@@ -78,7 +78,7 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
                         : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                   </Badge>
                 </TableCell>
-                <TableCell className={transaction.type === 'deposit' || transaction.type === 'deposit-shares' ? 'text-green-600' : 'text-red-600'}>
+                <TableCell className={transaction.type === 'deposit' || transaction.type === 'deposit-shares' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
                   {transaction.type === 'deposit' || transaction.type === 'deposit-shares' ? '+' : '-'}{formatCurrency(transaction.amount, 'GHS', 'en-GH', 2)}
                 </TableCell>
                 <TableCell>
@@ -95,7 +95,7 @@ const RecentActivityTable: React.FC<RecentActivityTableProps> = ({ transactions 
             
             {transactions.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={7} className="text-center py-6 text-gray-500 dark:text-gray-400">
                   No recent transactions found
                 </TableCell>
               </TableRow>

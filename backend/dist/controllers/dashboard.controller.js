@@ -2,7 +2,17 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDashboardStats = exports.getRecentTransactions = exports.getDashboardSummary = void 0;
 const client_1 = require("@prisma/client");
+const cashReporting_1 = require("../utils/cashReporting");
 const prisma = new client_1.PrismaClient();
+// Dashboard deposit/withdrawal figures are cash at the counter only (savings + shares) - fees,
+// transfers, opening balances, corrections, treasury and loan/guarantor bookkeeping excluded.
+const sumCash = async (types, date) => {
+    const result = await prisma.transaction.aggregate({
+        where: Object.assign(Object.assign({ type: { in: types }, status: 'COMPLETED' }, (date ? { date } : {})), { AND: [cashReporting_1.cashOnlyWhere] }),
+        _sum: { amount: true }
+    });
+    return Number(result._sum.amount || 0);
+};
 const getDashboardSummary = async (req, res) => {
     try {
         // Get date ranges for current and previous month
@@ -11,6 +21,8 @@ const getDashboardSummary = async (req, res) => {
         const currentMonthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         const previousMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
         const previousMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+        const currentMonth = { gte: currentMonthStart, lte: currentMonthEnd };
+        const previousMonth = { gte: previousMonthStart, lte: previousMonthEnd };
         const visibleCustomerWhere = {
             isHidden: false
         };
@@ -21,50 +33,27 @@ const getDashboardSummary = async (req, res) => {
         // Get customers from previous month for comparison
         const customersLastMonth = await prisma.customer.count({
             where: Object.assign(Object.assign({}, visibleCustomerWhere), { createdAt: { lte: previousMonthEnd } })
-        }); // Get total deposits (sum of all deposit transactions)
-        const depositsResult = await prisma.transaction.aggregate({
-            where: {
-                type: 'DEPOSIT',
-                status: 'COMPLETED'
-            },
-            _sum: {
-                amount: true
-            }
         });
-        // Get deposits from previous month for comparison
-        const depositsLastMonth = await prisma.transaction.aggregate({
+        // Savings only, as before - share movements have their own figures on the Transactions page.
+        const depositTypes = ['DEPOSIT'];
+        const withdrawalTypes = ['WITHDRAWAL'];
+        const [totalDeposits, depositsLastMonth, depositsThisMonth, totalWithdrawals, withdrawalsLastMonth, withdrawalsThisMonth] = await Promise.all([
+            sumCash(depositTypes),
+            sumCash(depositTypes, previousMonth),
+            sumCash(depositTypes, currentMonth),
+            sumCash(withdrawalTypes),
+            sumCash(withdrawalTypes, previousMonth),
+            sumCash(withdrawalTypes, currentMonth)
+        ]);
+        // Total loans = what borrowers still owe on approved loans (principal + interest). Loan
+        // account balances are negative and principal-only, so they understate what is owed.
+        const loansResult = await prisma.loan.aggregate({
             where: {
-                type: 'DEPOSIT',
-                status: 'COMPLETED',
-                date: {
-                    gte: previousMonthStart,
-                    lte: previousMonthEnd
-                }
+                authorizationStatus: 'APPROVED',
+                status: 'ACTIVE'
             },
             _sum: {
-                amount: true
-            }
-        });
-        const depositsThisMonth = await prisma.transaction.aggregate({
-            where: {
-                type: 'DEPOSIT',
-                status: 'COMPLETED',
-                date: {
-                    gte: currentMonthStart,
-                    lte: currentMonthEnd
-                }
-            },
-            _sum: {
-                amount: true
-            }
-        }); // Get total loans (sum of all loan account balances)
-        const loansResult = await prisma.account.aggregate({
-            where: {
-                status: 'ACTIVE',
-                type: 'LOAN'
-            },
-            _sum: {
-                balance: true
+                outstandingBalance: true
             }
         });
         // Get loans from previous month for comparison
@@ -72,10 +61,7 @@ const getDashboardSummary = async (req, res) => {
             where: {
                 type: 'LOAN_REPAYMENT',
                 status: 'COMPLETED',
-                date: {
-                    gte: previousMonthStart,
-                    lte: previousMonthEnd
-                }
+                date: previousMonth
             },
             _sum: {
                 amount: true
@@ -85,47 +71,7 @@ const getDashboardSummary = async (req, res) => {
             where: {
                 type: 'LOAN_REPAYMENT',
                 status: 'COMPLETED',
-                date: {
-                    gte: currentMonthStart,
-                    lte: currentMonthEnd
-                }
-            },
-            _sum: {
-                amount: true
-            }
-        });
-        // Get total withdrawals (sum of all withdrawal transactions)
-        const withdrawalsResult = await prisma.transaction.aggregate({
-            where: {
-                type: 'WITHDRAWAL',
-                status: 'COMPLETED'
-            },
-            _sum: {
-                amount: true
-            }
-        });
-        // Get withdrawals for month-over-month comparison
-        const withdrawalsLastMonth = await prisma.transaction.aggregate({
-            where: {
-                type: 'WITHDRAWAL',
-                status: 'COMPLETED',
-                date: {
-                    gte: previousMonthStart,
-                    lte: previousMonthEnd
-                }
-            },
-            _sum: {
-                amount: true
-            }
-        });
-        const withdrawalsThisMonth = await prisma.transaction.aggregate({
-            where: {
-                type: 'WITHDRAWAL',
-                status: 'COMPLETED',
-                date: {
-                    gte: currentMonthStart,
-                    lte: currentMonthEnd
-                }
+                date: currentMonth
             },
             _sum: {
                 amount: true
@@ -153,8 +99,8 @@ const getDashboardSummary = async (req, res) => {
         };
         // Calculate month-over-month changes
         const customersChange = calculatePercentageChange(totalCustomers, customersLastMonth);
-        const depositsChange = calculatePercentageChange(Number(depositsThisMonth._sum.amount || 0), Number(depositsLastMonth._sum.amount || 0));
-        const withdrawalsChange = calculatePercentageChange(Number(withdrawalsThisMonth._sum.amount || 0), Number(withdrawalsLastMonth._sum.amount || 0));
+        const depositsChange = calculatePercentageChange(depositsThisMonth, depositsLastMonth);
+        const withdrawalsChange = calculatePercentageChange(withdrawalsThisMonth, withdrawalsLastMonth);
         const loansChange = calculatePercentageChange(Number(loansThisMonth._sum.amount || 0), Number(loansLastMonth._sum.amount || 0));
         // Calculate transactions change (comparing this month vs last month)
         const transactionsThisMonth = await prisma.transaction.count({
@@ -178,9 +124,9 @@ const getDashboardSummary = async (req, res) => {
         const transactionsChange = calculatePercentageChange(transactionsThisMonth, transactionsLastMonth);
         const summary = {
             totalCustomers,
-            totalDeposits: Number(depositsResult._sum.amount || 0),
-            totalWithdrawals: Number(withdrawalsResult._sum.amount || 0),
-            totalLoans: Number(loansResult._sum.balance || 0),
+            totalDeposits,
+            totalWithdrawals,
+            totalLoans: Number(loansResult._sum.outstandingBalance || 0),
             todayTransactions,
             // Month-over-month percentage changes
             changes: {
@@ -244,15 +190,16 @@ const getDashboardStats = async (req, res) => {
     try {
         // Get monthly transaction trends (last 12 months)
         const monthlyStats = await prisma.$queryRaw `
-      SELECT 
-        DATE_FORMAT(date, '%Y-%m') as month,
+      SELECT
+        DATE_FORMAT(t.date, '%Y-%m') as month,
         COUNT(*) as transaction_count,
-        SUM(CASE WHEN type = 'DEPOSIT' THEN amount ELSE 0 END) as deposits,
-        SUM(CASE WHEN type = 'WITHDRAWAL' THEN amount ELSE 0 END) as withdrawals
-      FROM Transaction 
-      WHERE date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
-        AND status = 'COMPLETED'
-      GROUP BY DATE_FORMAT(date, '%Y-%m')
+        SUM(CASE WHEN t.type = 'DEPOSIT' AND ${cashReporting_1.SQL_IS_CASH} THEN t.amount ELSE 0 END) as deposits,
+        SUM(CASE WHEN t.type = 'WITHDRAWAL' AND ${cashReporting_1.SQL_IS_CASH} THEN t.amount ELSE 0 END) as withdrawals
+      FROM Transaction t
+      JOIN Account a ON a.id = t.accountId
+      WHERE t.date >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+        AND t.status = 'COMPLETED'
+      GROUP BY DATE_FORMAT(t.date, '%Y-%m')
       ORDER BY month ASC
     `;
         // Get account type distribution

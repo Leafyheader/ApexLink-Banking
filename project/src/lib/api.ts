@@ -1,8 +1,35 @@
 import axios, { AxiosError } from 'axios';
 
+const getDefaultApiBaseUrl = (): string => {
+  if (typeof window !== 'undefined') {
+    return `${window.location.protocol}//${window.location.hostname}:5000/api`;
+  }
+
+  return 'http://localhost:5000/api';
+};
+
+export const apiBaseUrl = import.meta.env.VITE_API_URL || getDefaultApiBaseUrl();
+export const backendBaseUrl = apiBaseUrl.replace(/\/api\/?$/, '');
+
+export const resolveBackendAssetUrl = (assetPath?: string | null): string | undefined => {
+  if (!assetPath) {
+    return undefined;
+  }
+
+  if (assetPath.startsWith('data:') || /^https?:\/\//.test(assetPath)) {
+    return assetPath;
+  }
+
+  if (assetPath.startsWith('/')) {
+    return `${backendBaseUrl}${assetPath}`;
+  }
+
+  return assetPath;
+};
+
 // Create axios instance with default config
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
+  baseURL: apiBaseUrl,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -42,14 +69,15 @@ api.interceptors.response.use(
 export default api;
 
 export type ApiError = {
-  message: string;
+  message?: string;
+  error?: string;
   errors?: Record<string, string[]>;
 };
 
 export const handleApiError = (error: unknown): string => {
   if (axios.isAxiosError(error)) {
     const apiError = error.response?.data as ApiError;
-    return apiError?.message || error.message;
+    return apiError?.message || apiError?.error || error.message;
   }
   return 'An unexpected error occurred';
 };
@@ -91,9 +119,10 @@ export const withdrawalAuthorizationApi = {
   createWithdrawalAuthorization: async (data: {
     accountId: string;
     amount: number;
-    type: 'withdrawal' | 'transfer';
+    type: 'withdrawal' | 'transfer' | 'withdrawal-shares';
     description?: string;
     reference?: string;
+    toAccountId?: string;
     toAccountNumber?: string;
     toCustomerName?: string;
   }) => {
@@ -305,6 +334,61 @@ export const auditApi = {
 
   getEventById: async (id: string) => {
     const response = await api.get(`/audit/${id}`);
+    return response.data;
+  },
+};
+
+export interface SystemSettings {
+  withdrawalFee: number;
+  defaultLoanInterestRate: number;
+  updatedAt: string;
+  updatedBy: string | null;
+}
+
+export interface TreasurySummary {
+  accountId: string;
+  accountNumber: string;
+  balance: number;
+  currency: string;
+  recentTransactions: {
+    id: string;
+    type: string;
+    amount: number;
+    description: string | null;
+    reference: string | null;
+    date: string;
+  }[];
+}
+
+// Settings API functions
+export const settingsApi = {
+  // Readable by any authenticated user
+  get: async (): Promise<SystemSettings> => {
+    const response = await api.get('/settings');
+    return response.data;
+  },
+
+  // Readable by any authenticated user
+  getTreasuryBalance: async (): Promise<{ balance: number; currency: string }> => {
+    const response = await api.get('/settings/treasury/balance');
+    return response.data;
+  },
+
+  // Admin-only
+  update: async (data: { withdrawalFee?: number; defaultLoanInterestRate?: number }) => {
+    const response = await api.put('/settings', data);
+    return response.data;
+  },
+
+  // Admin-only
+  getTreasury: async (): Promise<TreasurySummary> => {
+    const response = await api.get('/settings/treasury');
+    return response.data;
+  },
+
+  // Admin-only
+  fundTreasury: async (amount: number, description?: string) => {
+    const response = await api.post('/settings/treasury/fund', { amount, description });
     return response.data;
   },
 };

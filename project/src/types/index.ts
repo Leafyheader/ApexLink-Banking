@@ -16,8 +16,8 @@ export interface Customer {
   name: string;
   isHidden?: boolean;
   hiddenAt?: string;
-  email: string;
-  phone: string;
+  email?: string; // nullable in the database
+  phone?: string;
   address: string;
   kycStatus: 'verified' | 'pending' | 'rejected';
   dateJoined: string;
@@ -85,6 +85,23 @@ export interface Account {
   accruedInterest?: number;
   shareBalance?: number;
   sharesAvailableBalance?: number;
+  // For LOAN accounts only: the true remaining amount owed (principal + remaining interest +
+  // remaining guarantor-backed share), kept in sync on every repayment. `balance` on a LOAN
+  // account only tracks principal and understates what's actually still owed until near payoff -
+  // use this field wherever "outstanding debt" is shown or validated, falling back to
+  // Math.abs(balance) only if this is null (e.g. data loaded before the backend supported it).
+  loanOutstandingBalance?: number | null;
+  // Only present on the single-account endpoint (GET /accounts/:id) - the raw last-10
+  // transactions for this account, straight from Prisma (uppercase enum values, unformatted).
+  transactions?: {
+    id: string;
+    type: string;
+    amount: number;
+    status: string;
+    description?: string | null;
+    reference?: string | null;
+    date: string;
+  }[];
 }
 
 // Transaction types
@@ -120,7 +137,7 @@ export interface Transaction {
   accountNumber: string;
   customerName?: string;
   amount: number;
-  type: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares';
+  type: 'deposit' | 'withdrawal' | 'transfer' | 'loan-repayment' | 'deposit-shares' | 'withdrawal-shares';
   status: 'completed' | 'pending' | 'failed';
   date: string;
   description: string;
@@ -265,7 +282,7 @@ export interface WithdrawalAuthorization {
   customerName: string;
   customerId: string;
   amount: number;
-  type: 'withdrawal' | 'transfer';
+  type: 'withdrawal' | 'transfer' | 'withdrawal-shares';
   description: string;
   reference: string;
   toAccountNumber?: string;

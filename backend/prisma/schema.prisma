@@ -25,6 +25,7 @@ model User {
   approvedLoans      Loan[]      @relation("ApprovedLoan")
   createdExpenses    Expense[]   @relation("CreatedExpense")
   approvedExpenses   Expense[]   @relation("ApprovedExpense")
+  settingsUpdates    SystemSettings[] @relation("SettingsUpdatedBy")
 }
 
 model Customer {
@@ -99,10 +100,12 @@ model Account {
   pendingTransactions PendingTransaction[]
   balanceSnapshot AccountBalanceSnapshot?
   withdrawalAuthorizations WithdrawalAuthorization[] @relation("WithdrawalAccount")
+  incomingTransfers WithdrawalAuthorization[] @relation("TransferDestinationAccount")
   loan            Loan?
   guarantorLoans  LoanGuarantor[] @relation("GuarantorAccount")
   restrictions    AccountRestriction[] @relation("RestrictedAccount")
   incomeRecords   BankIncome[] @relation("IncomeAccount")
+  expensePayments Expense[] @relation("ExpensePayment")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   createdBy       String?    // ID of user who created the account
@@ -131,8 +134,10 @@ model WithdrawalAuthorization {
   type            WithdrawalType
   description     String?
   reference       String?
-  toAccountNumber String?   // For transfers
-  toCustomerName  String?   // For transfers
+  toAccountId     String?   // For transfers - actual destination account to credit on approval
+  toAccount       Account?  @relation("TransferDestinationAccount", fields: [toAccountId], references: [id])
+  toAccountNumber String?   // For transfers - display only
+  toCustomerName  String?   // For transfers - display only
   status          WithdrawalAuthorizationStatus @default(PENDING)
   requestedAt     DateTime  @default(now())
   requestedBy     User      @relation("RequestedBy", fields: [requestedById], references: [id])
@@ -184,12 +189,22 @@ model Loan {
   
   // Guarantor relationships with amounts
   guarantors          LoanGuarantor[]
+  restrictions        AccountRestriction[] @relation("LoanRestrictions")
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   createdBy          String?   // ID of user who created the loan
   approvedBy         User?     @relation("ApprovedLoan", fields: [approvedById], references: [id])
   approvedById      String?
   approvedAt        DateTime?
+}
+
+model SystemSettings {
+  id                      Int      @id @default(1)
+  withdrawalFee           Decimal  @default(5.00)
+  defaultLoanInterestRate Decimal  @default(5.00)
+  updatedAt               DateTime @updatedAt
+  updatedById             String?
+  updatedBy               User?    @relation("SettingsUpdatedBy", fields: [updatedById], references: [id])
 }
 
 model BankIncome {
@@ -224,6 +239,8 @@ model Expense {
   approvedByUser    User?         @relation("ApprovedExpense", fields: [approvedById], references: [id])
   approvedDate      DateTime?
   paidDate          DateTime?
+  paidFromAccountId String?       // Treasury account debited when this expense was marked PAID
+  paidFromAccount   Account?      @relation("ExpensePayment", fields: [paidFromAccountId], references: [id])
   createdById       String
   createdByUser     User          @relation("CreatedExpense", fields: [createdById], references: [id])
   createdAt         DateTime      @default(now())
@@ -247,6 +264,7 @@ enum AccountType {
   CURRENT
   FIXED
   LOAN
+  TREASURY
 }
 
 enum AccountStatus {
@@ -266,6 +284,7 @@ enum TransactionType {
   DEPOSIT
   DEPOSIT_SHARES
   WITHDRAWAL
+  WITHDRAWAL_SHARES
   TRANSFER
   LOAN_REPAYMENT
 }
@@ -278,6 +297,7 @@ enum TransactionStatus {
 
 enum WithdrawalType {
   WITHDRAWAL
+  WITHDRAWAL_SHARES
   TRANSFER
 }
 
@@ -406,6 +426,7 @@ model LoanGuarantor {
   guarantorAccountId String
   guarantorAccount  Account   @relation("GuarantorAccount", fields: [guarantorAccountId], references: [id])
   guaranteedAmount  Decimal
+  amountReimbursed  Decimal   @default(0) // Paid back to this guarantor so far from repayments
   status           GuarantorStatus @default(ACTIVE)
   restrictions     AccountRestriction[]
   createdAt        DateTime  @default(now())
@@ -425,6 +446,8 @@ model AccountRestriction {
   reason           String
   loanGuarantorId  String?
   loanGuarantor    LoanGuarantor? @relation(fields: [loanGuarantorId], references: [id], onDelete: Cascade)
+  loanId           String?        // Set for LOAN_OWN_BACKING holds (borrower's own 50% backing)
+  loan             Loan?          @relation("LoanRestrictions", fields: [loanId], references: [id], onDelete: Cascade)
   isActive         Boolean        @default(true)
   createdAt        DateTime       @default(now())
   releasedAt       DateTime?
@@ -432,6 +455,7 @@ model AccountRestriction {
 
   @@index([accountId, isActive])
   @@index([loanGuarantorId])
+  @@index([loanId])
 }
 
 enum GuarantorStatus {
@@ -443,6 +467,7 @@ enum GuarantorStatus {
 
 enum RestrictionType {
   LOAN_GUARANTEE
+  LOAN_OWN_BACKING
   COURT_ORDER
   COMPLIANCE_HOLD
 }

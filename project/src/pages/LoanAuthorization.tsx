@@ -273,7 +273,7 @@ const LoanAuthorization: React.FC = () => {
   if (isPageLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading loan authorizations...</div>
+        <div className="text-gray-500 dark:text-dark-text">Loading loan authorizations...</div>
       </div>
     );
   }
@@ -283,8 +283,8 @@ const LoanAuthorization: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Loan Authorization</h1>
-          <p className="text-gray-600">Review and authorize loan applications</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Loan Authorization</h1>
+          <p className="text-gray-600 dark:text-dark-text">Review and authorize loan applications</p>
         </div>
       </div>
 
@@ -303,7 +303,7 @@ const LoanAuthorization: React.FC = () => {
             fullWidth
           />
           {isSearching && (
-            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-gray-500">
+            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 text-xs text-gray-500 dark:text-dark-text">
               Searching...
             </div>
           )}
@@ -320,21 +320,21 @@ const LoanAuthorization: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Applications</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Total Applications</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text">{summary.total}</p>
             </div>
             <div className="bg-blue-100 p-2 rounded-lg">
               <Filter className="h-6 w-6 text-blue-600" />
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Approved</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Approved</p>
               <p className="text-2xl font-bold text-green-600">{summary.approved}</p>
             </div>
             <div className="bg-green-100 p-2 rounded-lg">
@@ -342,10 +342,10 @@ const LoanAuthorization: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Pending</p>
               <p className="text-2xl font-bold text-orange-600">{summary.pending}</p>
             </div>
             <div className="bg-orange-100 p-2 rounded-lg">
@@ -353,10 +353,10 @@ const LoanAuthorization: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Rejected</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Rejected</p>
               <p className="text-2xl font-bold text-red-600">{summary.rejected}</p>
             </div>
             <div className="bg-red-100 p-2 rounded-lg">
@@ -367,7 +367,7 @@ const LoanAuthorization: React.FC = () => {
       </div>
 
       {/* Loans Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow overflow-hidden dark:border dark:border-dark-border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -385,13 +385,13 @@ const LoanAuthorization: React.FC = () => {
           <TableBody>
             {loans.map((loan) => (
               <TableRow key={loan.id}>
-                <TableCell className="font-medium">{loan.customerName}</TableCell>
-                <TableCell>{loan.accountNumber}</TableCell>
-                <TableCell>{formatCurrency(loan.amount, 'GHS', 'en-GH', 2)}</TableCell>
-                <TableCell>{loan.interestRate}%</TableCell>
-                <TableCell>{loan.term} months</TableCell>
-                <TableCell>{formatCurrency(loan.totalPayable, 'GHS', 'en-GH', 2)}</TableCell>
-                <TableCell>{formatDate(loan.requestedAt)}</TableCell>
+                <TableCell className="font-medium text-gray-900 dark:text-dark-text">{loan.customerName}</TableCell>
+                <TableCell className="dark:text-dark-text">{loan.accountNumber}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(loan.amount, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{loan.interestRate}%</TableCell>
+                <TableCell className="dark:text-dark-text">{loan.term} months</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(loan.totalPayable, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatDate(loan.requestedAt)}</TableCell>
                 <TableCell>
                   <Badge variant={getStatusVariant(loan.status)}>
                     {loan.status.charAt(0).toUpperCase() + loan.status.slice(1)}
@@ -413,7 +413,7 @@ const LoanAuthorization: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleApproveLoan(loan)}
-                          className="text-green-600 hover:text-green-700 hover:bg-green-50"
+                          className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-900/30"
                           title="Approve Loan"
                         >
                           <CheckCircle className="w-4 h-4" />
@@ -422,7 +422,7 @@ const LoanAuthorization: React.FC = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleRejectLoan(loan)}
-                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-900/30"
                           title="Reject Loan"
                         >
                           <XCircle className="w-4 h-4" />
@@ -436,7 +436,7 @@ const LoanAuthorization: React.FC = () => {
 
             {loans.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={9} className="text-center py-6 text-gray-500 dark:text-dark-text">
                   No loan applications found
                 </TableCell>
               </TableRow>
@@ -465,55 +465,55 @@ const LoanAuthorization: React.FC = () => {
           <div className="space-y-6">
             {/* Customer Information */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text mb-3 flex items-center gap-2">
                 <User className="w-5 h-5" />
                 Customer Information
               </h3>
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
                 <div>
-                  <span className="font-medium text-gray-700">Customer Name:</span>
-                  <p className="mt-1">{currentLoan.customerName}</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Customer Name:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.customerName}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Account Number:</span>
-                  <p className="mt-1">{currentLoan.accountNumber}</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Account Number:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.accountNumber}</p>
                 </div>
               </div>
             </div>
 
             {/* Loan Details */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text mb-3 flex items-center gap-2">
                 <FileText className="w-5 h-5" />
                 Loan Details
               </h3>
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
+              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
                 <div>
-                  <span className="font-medium text-gray-700">Loan Amount:</span>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Loan Amount:</span>
                   <p className="mt-1 text-lg font-semibold text-blue-600">
                     {formatCurrency(currentLoan.amount, 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Interest Rate:</span>
-                  <p className="mt-1">{currentLoan.interestRate}% per annum</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Interest Rate:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.interestRate}% per annum</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Loan Term:</span>
-                  <p className="mt-1">{currentLoan.term} months</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Loan Term:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.term} months</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Repayment Frequency:</span>
-                  <p className="mt-1">{currentLoan.repaymentFrequency}</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Repayment Frequency:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.repaymentFrequency}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Monthly Payment:</span>
-                  <p className="mt-1 font-semibold">
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Monthly Payment:</span>
+                  <p className="mt-1 font-semibold dark:text-dark-text">
                     {formatCurrency(currentLoan.monthlyPayment, 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Total Payable:</span>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Total Payable:</span>
                   <p className="mt-1 text-lg font-semibold text-green-600">
                     {formatCurrency(currentLoan.totalPayable, 'GHS', 'en-GH', 2)}
                   </p>
@@ -524,73 +524,73 @@ const LoanAuthorization: React.FC = () => {
             {/* Guarantor Information */}
             {(currentLoan.guarantor1 || currentLoan.guarantor2 || currentLoan.guarantor3) && (
               <div>
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">Guarantor Information</h3>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text mb-3">Guarantor Information</h3>
                 <div className="space-y-3">
                   {currentLoan.guarantor1 && (
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-medium text-blue-900 mb-2">Guarantor 1</h4>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                      <h4 className="font-medium text-blue-900 dark:text-blue-300 mb-2">Guarantor 1</h4>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <span className="text-gray-600">Name:</span>
-                          <p className="font-medium">{currentLoan.guarantor1.name}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Name:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor1.name}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Account:</span>
-                          <p className="font-medium">{currentLoan.guarantor1.accountNumber}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Account:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor1.accountNumber}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Guarantee Amount:</span>
-                          <p className="font-medium">{formatCurrency(currentLoan.guarantor1.amount, 'GHS', 'en-GH', 2)}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Guarantee Amount:</span>
+                          <p className="font-medium dark:text-dark-text">{formatCurrency(currentLoan.guarantor1.amount, 'GHS', 'en-GH', 2)}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Percentage:</span>
-                          <p className="font-medium">{currentLoan.guarantor1.percentage}%</p>
+                          <span className="text-gray-600 dark:text-gray-300">Percentage:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor1.percentage}%</p>
                         </div>
                       </div>
                     </div>
                   )}
                   {currentLoan.guarantor2 && (
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-medium text-blue-900 mb-2">Guarantor 2</h4>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                      <h4 className="font-medium text-blue-900 dark:text-blue-300 mb-2">Guarantor 2</h4>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <span className="text-gray-600">Name:</span>
-                          <p className="font-medium">{currentLoan.guarantor2.name}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Name:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor2.name}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Account:</span>
-                          <p className="font-medium">{currentLoan.guarantor2.accountNumber}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Account:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor2.accountNumber}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Guarantee Amount:</span>
-                          <p className="font-medium">{formatCurrency(currentLoan.guarantor2.amount, 'GHS', 'en-GH', 2)}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Guarantee Amount:</span>
+                          <p className="font-medium dark:text-dark-text">{formatCurrency(currentLoan.guarantor2.amount, 'GHS', 'en-GH', 2)}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Percentage:</span>
-                          <p className="font-medium">{currentLoan.guarantor2.percentage}%</p>
+                          <span className="text-gray-600 dark:text-gray-300">Percentage:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor2.percentage}%</p>
                         </div>
                       </div>
                     </div>
                   )}
                   {currentLoan.guarantor3 && (
-                    <div className="bg-blue-50 p-4 rounded-lg">
-                      <h4 className="font-medium text-blue-900 mb-2">Guarantor 3</h4>
+                    <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+                      <h4 className="font-medium text-blue-900 dark:text-blue-300 mb-2">Guarantor 3</h4>
                       <div className="grid grid-cols-2 gap-3 text-sm">
                         <div>
-                          <span className="text-gray-600">Name:</span>
-                          <p className="font-medium">{currentLoan.guarantor3.name}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Name:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor3.name}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Account:</span>
-                          <p className="font-medium">{currentLoan.guarantor3.accountNumber}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Account:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor3.accountNumber}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Guarantee Amount:</span>
-                          <p className="font-medium">{formatCurrency(currentLoan.guarantor3.amount, 'GHS', 'en-GH', 2)}</p>
+                          <span className="text-gray-600 dark:text-gray-300">Guarantee Amount:</span>
+                          <p className="font-medium dark:text-dark-text">{formatCurrency(currentLoan.guarantor3.amount, 'GHS', 'en-GH', 2)}</p>
                         </div>
                         <div>
-                          <span className="text-gray-600">Percentage:</span>
-                          <p className="font-medium">{currentLoan.guarantor3.percentage}%</p>
+                          <span className="text-gray-600 dark:text-gray-300">Percentage:</span>
+                          <p className="font-medium dark:text-dark-text">{currentLoan.guarantor3.percentage}%</p>
                         </div>
                       </div>
                     </div>
@@ -601,18 +601,18 @@ const LoanAuthorization: React.FC = () => {
 
             {/* Request Information */}
             <div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Request Information</h3>
-              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 p-4 rounded-lg">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-dark-text mb-3">Request Information</h3>
+              <div className="grid grid-cols-2 gap-4 text-sm bg-gray-50 dark:bg-gray-800 p-4 rounded-lg">
                 <div>
-                  <span className="font-medium text-gray-700">Requested By:</span>
-                  <p className="mt-1">{currentLoan.requestedByName}</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Requested By:</span>
+                  <p className="mt-1 dark:text-dark-text">{currentLoan.requestedByName}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Requested At:</span>
-                  <p className="mt-1">{formatDate(currentLoan.requestedAt)}</p>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Requested At:</span>
+                  <p className="mt-1 dark:text-dark-text">{formatDate(currentLoan.requestedAt)}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Status:</span>
+                  <span className="font-medium text-gray-700 dark:text-dark-text">Status:</span>
                   <div className="mt-1">
                     <Badge variant={getStatusVariant(currentLoan.status)}>
                       {currentLoan.status.charAt(0).toUpperCase() + currentLoan.status.slice(1)}
@@ -622,21 +622,21 @@ const LoanAuthorization: React.FC = () => {
                 {currentLoan.status === 'approved' && currentLoan.approvedByName && (
                   <>
                     <div>
-                      <span className="font-medium text-gray-700">Approved By:</span>
-                      <p className="mt-1">{currentLoan.approvedByName}</p>
+                      <span className="font-medium text-gray-700 dark:text-dark-text">Approved By:</span>
+                      <p className="mt-1 dark:text-dark-text">{currentLoan.approvedByName}</p>
                     </div>
                     {currentLoan.approvedAt && (
                       <div>
-                        <span className="font-medium text-gray-700">Approved At:</span>
-                        <p className="mt-1">{formatDate(currentLoan.approvedAt)}</p>
+                        <span className="font-medium text-gray-700 dark:text-dark-text">Approved At:</span>
+                        <p className="mt-1 dark:text-dark-text">{formatDate(currentLoan.approvedAt)}</p>
                       </div>
                     )}
                   </>
                 )}
                 {currentLoan.status === 'rejected' && currentLoan.rejectedReason && (
                   <div className="col-span-2">
-                    <span className="font-medium text-gray-700">Rejection Reason:</span>
-                    <p className="mt-1 text-red-600">{currentLoan.rejectedReason}</p>
+                    <span className="font-medium text-gray-700 dark:text-dark-text">Rejection Reason:</span>
+                    <p className="mt-1 text-red-600 dark:text-red-400">{currentLoan.rejectedReason}</p>
                   </div>
                 )}
               </div>
@@ -671,40 +671,40 @@ const LoanAuthorization: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to approve the following loan application?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="font-medium text-gray-700">Customer:</span>
+                  <span className="font-medium">Customer:</span>
                   <p>{currentLoan.customerName}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Loan Amount:</span>
+                  <span className="font-medium">Loan Amount:</span>
                   <p className="font-semibold text-blue-600">
                     {formatCurrency(currentLoan.amount, 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Interest Rate:</span>
+                  <span className="font-medium">Interest Rate:</span>
                   <p>{currentLoan.interestRate}%</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Term:</span>
+                  <span className="font-medium">Term:</span>
                   <p>{currentLoan.term} months</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Total Payable:</span>
+                  <span className="font-medium">Total Payable:</span>
                   <p className="font-semibold text-green-600">
                     {formatCurrency(currentLoan.totalPayable, 'GHS', 'en-GH', 2)}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="bg-blue-50 p-4 rounded-md">
-              <p className="text-sm text-blue-700">
-                <strong>Note:</strong> Approving this loan will create a loan account and 
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-md">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                <strong>Note:</strong> Approving this loan will create a loan account and
                 disburse the funds according to the guarantee structure.
               </p>
             </div>
@@ -738,17 +738,17 @@ const LoanAuthorization: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to reject the following loan application?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="font-medium text-gray-700">Customer:</span>
+                  <span className="font-medium">Customer:</span>
                   <p>{currentLoan.customerName}</p>
                 </div>
                 <div>
-                  <span className="font-medium text-gray-700">Loan Amount:</span>
+                  <span className="font-medium">Loan Amount:</span>
                   <p className="font-semibold">
                     {formatCurrency(currentLoan.amount, 'GHS', 'en-GH', 2)}
                   </p>
@@ -756,22 +756,22 @@ const LoanAuthorization: React.FC = () => {
               </div>
             </div>
             <div>
-              <label htmlFor="rejectReason" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="rejectReason" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-2">
                 Rejection Reason *
               </label>
               <textarea
                 id="rejectReason"
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 rows={4}
                 placeholder="Please provide a reason for rejecting this loan application..."
                 required
               />
             </div>
-            <div className="bg-yellow-50 p-4 rounded-md">
-              <p className="text-sm text-yellow-700">
-                <strong>Warning:</strong> Rejecting this loan will prevent it from being 
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-md">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                <strong>Warning:</strong> Rejecting this loan will prevent it from being
                 processed. The customer will need to submit a new application if needed.
               </p>
             </div>

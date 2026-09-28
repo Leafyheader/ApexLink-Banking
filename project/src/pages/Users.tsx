@@ -1,28 +1,32 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
+import {
   UserPlus,
   Search,
   Shield,
   Settings,
   Trash2,
   Eye,
-  X
+  X,
+  Pencil,
+  Power
 } from 'lucide-react';
 import Button from '../components/ui/Button';
 import Input from '../components/ui/Input';
-import { 
-  Table, 
-  TableHeader, 
-  TableBody, 
-  TableRow, 
-  TableHead, 
-  TableCell 
+import Select from '../components/ui/Select';
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell
 } from '../components/ui/Table';
 import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import { formatDate } from '../lib/utils';
 import api from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface User {
   id: string;
@@ -36,7 +40,8 @@ interface User {
 
 const Users: React.FC = () => {
   const navigate = useNavigate();
-  
+  const { user: loggedInUser } = useAuth();
+
   // State for user data
   const [users, setUsers] = useState<User[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -44,14 +49,18 @@ const Users: React.FC = () => {
   const [itemsPerPage] = useState(10);
   const [totalItems, setTotalItems] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
-  
+
   // Modal states
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [isEditRoleModalOpen, setIsEditRoleModalOpen] = useState(false);
+  const [isToggleStatusModalOpen, setIsToggleStatusModalOpen] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  
+  const [editRoleValue, setEditRoleValue] = useState<'ADMIN' | 'MANAGER' | 'TELLER'>('TELLER');
+
   // Loading and error states
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [actionLoading, setActionLoading] = useState(false);
 
   // Fetch users from API with pagination
   useEffect(() => {
@@ -95,12 +104,19 @@ const Users: React.FC = () => {
     setIsDeleteModalOpen(true);
   };
 
+  // Extracts the backend's specific message (e.g. "Cannot delete your own account") instead of
+  // a generic string that hides exactly why the action was rejected. Surfaced via alert(), not
+  // the page-level `error` state - that state triggers a full-page replacement (see the render
+  // below), which would blow away the whole page instead of just reporting a failed modal action.
+  const getActionErrorMessage = (err: unknown, fallback: string): string =>
+    (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
+
   // Confirm delete user
   const confirmDeleteUser = async () => {
     if (!currentUser) return;
-    
+
     setIsLoading(true);
-    
+
     try {
       await api.delete(`/users/${currentUser.id}`);
       const updatedUsers = users.filter(user => user.id !== currentUser.id);
@@ -108,9 +124,63 @@ const Users: React.FC = () => {
       setIsDeleteModalOpen(false);
     } catch (err) {
       console.error('Failed to delete user:', err);
-      setError('Failed to delete user');
+      alert(getActionErrorMessage(err, 'Failed to delete user'));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Handle edit role
+  const handleEditRole = (user: User) => {
+    setCurrentUser(user);
+    setEditRoleValue(user.role);
+    setIsEditRoleModalOpen(true);
+  };
+
+  // Confirm edit role
+  const confirmEditRole = async () => {
+    if (!currentUser) return;
+
+    setActionLoading(true);
+
+    try {
+      const response = await api.put(`/users/${currentUser.id}`, { role: editRoleValue });
+      const updatedUser: User = response.data.user;
+      setUsers(users.map(user => (user.id === updatedUser.id ? updatedUser : user)));
+      setIsEditRoleModalOpen(false);
+      setCurrentUser(null);
+    } catch (err) {
+      console.error('Failed to update role:', err);
+      alert(getActionErrorMessage(err, 'Failed to update role'));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  // Handle toggle status (activate/deactivate)
+  const handleToggleStatus = (user: User) => {
+    setCurrentUser(user);
+    setIsToggleStatusModalOpen(true);
+  };
+
+  // Confirm toggle status - uses the dedicated toggle-status endpoint (not a generic PUT) so
+  // the backend's self-deactivation guard ("Cannot disable your own account") still applies.
+  const confirmToggleStatus = async () => {
+    if (!currentUser) return;
+
+    setActionLoading(true);
+
+    try {
+      const response = await api.patch(`/users/${currentUser.id}/toggle-status`);
+      const updatedUser: User = response.data.user;
+      setUsers(users.map(user => (user.id === updatedUser.id ? updatedUser : user)));
+      setIsToggleStatusModalOpen(false);
+      setCurrentUser(null);
+    } catch (err) {
+      console.error('Failed to toggle user status:', err);
+      alert(getActionErrorMessage(err, 'Failed to update user status'));
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -146,7 +216,7 @@ const Users: React.FC = () => {
   if (isLoading && users.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Loading users...</div>
+        <div className="text-lg text-gray-600 dark:text-dark-text">Loading users...</div>
       </div>
     );
   }
@@ -155,7 +225,7 @@ const Users: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-red-600">{error}</div>
+        <div className="text-lg text-red-600 dark:text-red-400">{error}</div>
       </div>
     );
   }
@@ -164,8 +234,8 @@ const Users: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">User Management</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-dark-text">User Management</h1>
+          <p className="text-muted-foreground dark:text-gray-300">
             Manage system users and their roles
           </p>
         </div>
@@ -195,7 +265,7 @@ const Users: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow overflow-hidden dark:border dark:border-dark-border">
         <div className="overflow-auto max-h-96">
           <Table>
             <TableHeader>
@@ -212,10 +282,10 @@ const Users: React.FC = () => {
             <TableBody>
               {users.map((user) => (
                 <TableRow key={user.id}>
-                  <TableCell className="font-medium text-gray-900">
+                  <TableCell className="font-medium text-gray-900 dark:text-dark-text">
                     {user.name}
                   </TableCell>
-                  <TableCell>{user.username}</TableCell>
+                  <TableCell className="dark:text-dark-text">{user.username}</TableCell>
                   <TableCell>
                     <Badge variant={getRoleVariant(user.role)} className="flex items-center gap-1">
                       {getRoleIcon(user.role)}
@@ -227,17 +297,38 @@ const Users: React.FC = () => {
                       {user.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="dark:text-dark-text">
                     {user.lastLoginAt ? formatDate(user.lastLoginAt) : 'Never'}
                   </TableCell>
-                  <TableCell>{formatDate(user.createdAt)}</TableCell>
+                  <TableCell className="dark:text-dark-text">{formatDate(user.createdAt)}</TableCell>
                   <TableCell>
                     <div className="flex space-x-2">
                       <Button
                         variant="ghost"
                         size="sm"
+                        leftIcon={<Pencil size={16} />}
+                        onClick={() => handleEditRole(user)}
+                        title="Edit role"
+                      >
+                        Role
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        leftIcon={<Power size={16} />}
+                        onClick={() => handleToggleStatus(user)}
+                        disabled={loggedInUser?.id === user.id}
+                        title={loggedInUser?.id === user.id ? "You can't deactivate your own account" : undefined}
+                      >
+                        {user.isActive ? 'Deactivate' : 'Activate'}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         leftIcon={<Trash2 size={16} />}
                         onClick={() => handleDeleteUser(user)}
+                        disabled={loggedInUser?.id === user.id}
+                        title={loggedInUser?.id === user.id ? "You can't delete your own account" : undefined}
                       >
                         Delete
                       </Button>
@@ -248,7 +339,7 @@ const Users: React.FC = () => {
 
               {users.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-6 text-gray-500">
+                  <TableCell colSpan={7} className="text-center py-6 text-gray-500 dark:text-dark-text">
                     {searchQuery
                       ? 'No users found matching your search criteria'
                       : 'No users found'}
@@ -261,7 +352,7 @@ const Users: React.FC = () => {
       </div>
 
       {/* Summary Information */}
-      <div className="flex justify-between items-center text-sm text-gray-600">
+      <div className="flex justify-between items-center text-sm text-gray-600 dark:text-gray-300">
         <span>
           Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} users
           {searchQuery && ` (search: "${searchQuery}")`}
@@ -273,7 +364,7 @@ const Users: React.FC = () => {
 
       {/* Pagination */}
       {totalItems > 0 && (
-        <div className="flex justify-center items-center gap-4 p-4 bg-white rounded-lg shadow">
+        <div className="flex justify-center items-center gap-4 p-4 bg-white dark:bg-dark-surface rounded-lg shadow dark:border dark:border-dark-border">
           <button
             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
             disabled={currentPage <= 1}
@@ -281,7 +372,7 @@ const Users: React.FC = () => {
           >
             Previous
           </button>
-          <span className="px-4 py-2 bg-gray-100 rounded">
+          <span className="px-4 py-2 bg-gray-100 dark:bg-gray-800 dark:text-dark-text rounded">
             Page {currentPage} of {Math.max(1, totalPages)}
           </span>
           <button
@@ -291,7 +382,7 @@ const Users: React.FC = () => {
           >
             Next
           </button>
-          <div className="ml-4 text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
+          <div className="ml-4 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded">
             Total: {totalItems} users
           </div>
         </div>
@@ -322,14 +413,108 @@ const Users: React.FC = () => {
             </div>
           }
         >
-          <p className="text-gray-700">
+          <p className="text-gray-700 dark:text-dark-text">
             Are you sure you want to delete user "{currentUser.name}"? This action cannot be undone.
           </p>
-          <div className="mt-4 p-4 bg-yellow-50 rounded-md">
-            <p className="text-sm text-yellow-700">
+          <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-md">
+            <p className="text-sm text-yellow-700 dark:text-yellow-300">
               <strong>Warning:</strong> Deleting this user will remove their access to the system immediately.
             </p>
           </div>
+        </Modal>
+      )}
+
+      {/* Edit Role Modal */}
+      {currentUser && (
+        <Modal
+          isOpen={isEditRoleModalOpen}
+          onClose={() => setIsEditRoleModalOpen(false)}
+          title="Edit User Role"
+          footer={
+            <div className="flex space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsEditRoleModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={confirmEditRole}
+                isLoading={actionLoading}
+              >
+                Save Changes
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <p className="text-gray-700 dark:text-dark-text">
+              Change the role for <strong>{currentUser.name}</strong> ({currentUser.username}).
+            </p>
+            <Select
+              label="Role"
+              value={editRoleValue}
+              onChange={(value) => setEditRoleValue(value as 'ADMIN' | 'MANAGER' | 'TELLER')}
+              options={[
+                { value: 'ADMIN', label: 'Administrator' },
+                { value: 'MANAGER', label: 'Manager' },
+                { value: 'TELLER', label: 'Teller' }
+              ]}
+              fullWidth
+            />
+            <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
+              <p><strong>Administrator:</strong> Full system access</p>
+              <p><strong>Manager:</strong> Manage users and approve transactions</p>
+              <p><strong>Teller:</strong> Process customer transactions</p>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Toggle Status Modal */}
+      {currentUser && (
+        <Modal
+          isOpen={isToggleStatusModalOpen}
+          onClose={() => setIsToggleStatusModalOpen(false)}
+          title={currentUser.isActive ? 'Deactivate User' : 'Activate User'}
+          footer={
+            <div className="flex space-x-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsToggleStatusModalOpen(false)}
+                disabled={actionLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={currentUser.isActive ? 'danger' : 'primary'}
+                onClick={confirmToggleStatus}
+                isLoading={actionLoading}
+              >
+                {currentUser.isActive ? 'Deactivate' : 'Activate'}
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-gray-700 dark:text-dark-text">
+            Are you sure you want to {currentUser.isActive ? 'deactivate' : 'activate'} user "{currentUser.name}"?
+          </p>
+          {currentUser.isActive ? (
+            <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-md">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
+                <strong>Note:</strong> This immediately blocks their access - both new logins and
+                any of their currently active sessions.
+              </p>
+            </div>
+          ) : (
+            <div className="mt-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-md">
+              <p className="text-sm text-green-700 dark:text-green-300">
+                This user will be able to log in again immediately.
+              </p>
+            </div>
+          )}
         </Modal>
       )}
     </div>

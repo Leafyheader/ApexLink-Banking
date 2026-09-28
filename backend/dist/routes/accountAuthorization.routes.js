@@ -6,11 +6,14 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const express_1 = __importDefault(require("express"));
 const accountAuthorization_controller_1 = require("../controllers/accountAuthorization.controller");
 const auth_1 = require("../middleware/auth");
+const roleAuth_1 = require("../middleware/roleAuth");
 const router = express_1.default.Router();
 // Get all account authorizations with filtering
 router.get('/', auth_1.authenticateToken, accountAuthorization_controller_1.getAccountAuthorizations);
+// Approve every pending account
+router.post('/approve-all', auth_1.authenticateToken, (0, roleAuth_1.requireRole)(['ADMIN', 'MANAGER']), accountAuthorization_controller_1.bulkApproveAccounts);
 // Approve an account
-router.post('/:id/approve', auth_1.authenticateToken, accountAuthorization_controller_1.approveAccount);
+router.post('/:id/approve', auth_1.authenticateToken, (0, roleAuth_1.requireRole)(['ADMIN', 'MANAGER']), accountAuthorization_controller_1.approveAccount);
 // Reject or reverse approval of an account
-router.post('/:id/reject', auth_1.authenticateToken, accountAuthorization_controller_1.rejectOrReverseAccount);
+router.post('/:id/reject', auth_1.authenticateToken, (0, roleAuth_1.requireRole)(['ADMIN', 'MANAGER']), accountAuthorization_controller_1.rejectOrReverseAccount);
 exports.default = router;

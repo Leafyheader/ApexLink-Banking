@@ -4,20 +4,29 @@ import { useAuth } from '../../contexts/AuthContext';
 
 interface PrivateRouteProps {
   children: React.ReactNode;
+  roles?: string[];
 }
 
-const PrivateRoute: React.FC<PrivateRouteProps> = ({ children }) => {
-  const { isAuthenticated, isLoading } = useAuth();
+const PrivateRoute: React.FC<PrivateRouteProps> = ({ children, roles }) => {
+  const { user, isAuthenticated, isLoading } = useAuth();
 
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex justify-center items-center min-h-screen bg-light-bg dark:bg-dark-bg">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 dark:border-blue-400"></div>
       </div>
     );
   }
 
-  return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (roles && (!user || !roles.includes(user.role))) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
 };
 
 export default PrivateRoute;

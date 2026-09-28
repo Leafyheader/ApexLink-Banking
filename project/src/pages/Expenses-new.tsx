@@ -261,8 +261,8 @@ export default function Expenses() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Operating Expenses</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-dark-text">Operating Expenses</h1>
+          <p className="text-muted-foreground dark:text-gray-300">
             Manage and track operating expenses for financial control and compliance
           </p>
         </div>
@@ -287,10 +287,10 @@ export default function Expenses() {
               <DollarSignIcon className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">
+              <div className="text-2xl font-bold text-gray-900 dark:text-dark-text">
                 {formatCurrency(expenseSummary.totalExpenses)}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground dark:text-gray-400">
                 All recorded expenses
               </p>
             </CardContent>
@@ -305,7 +305,7 @@ export default function Expenses() {
               <div className="text-2xl font-bold text-orange-600">
                 {formatCurrency(expenseSummary.pendingExpenses)}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground dark:text-gray-400">
                 Awaiting approval
               </p>
             </CardContent>
@@ -320,7 +320,7 @@ export default function Expenses() {
               <div className="text-2xl font-bold text-blue-600">
                 {formatCurrency(expenseSummary.monthlyBudget)}
               </div>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-xs text-muted-foreground dark:text-gray-400">
                 {expenseSummary.budgetUtilization.toFixed(1)}% utilized
               </p>
             </CardContent>
@@ -335,8 +335,8 @@ export default function Expenses() {
               <div className="text-2xl font-bold text-green-600">
                 {formatCurrency(expenseSummary.monthlySpent)}
               </div>
-              <p className="text-xs text-muted-foreground">
-                {expenseSummary.monthlyBudget > 0 
+              <p className="text-xs text-muted-foreground dark:text-gray-400">
+                {expenseSummary.monthlyBudget > 0
                   ? `${((expenseSummary.monthlySpent / expenseSummary.monthlyBudget) * 100).toFixed(1)}% of budget`
                   : 'No budget set'
                 }
@@ -357,7 +357,7 @@ export default function Expenses() {
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium">From Date</label>
+              <label className="text-sm font-medium dark:text-dark-text">From Date</label>
               <Input
                 type="date"
                 value={filters.dateFrom}
@@ -365,7 +365,7 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">To Date</label>
+              <label className="text-sm font-medium dark:text-dark-text">To Date</label>
               <Input
                 type="date"
                 value={filters.dateTo}
@@ -373,7 +373,7 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Category</label>
+              <label className="text-sm font-medium dark:text-dark-text">Category</label>
               <Select
                 options={[{ value: '', label: 'All Categories' }, ...EXPENSE_CATEGORIES]}
                 value={filters.category || ''}
@@ -381,7 +381,7 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Status</label>
+              <label className="text-sm font-medium dark:text-dark-text">Status</label>
               <Select
                 options={[{ value: '', label: 'All Status' }, ...EXPENSE_STATUS]}
                 value={filters.status || ''}
@@ -389,7 +389,7 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Department</label>
+              <label className="text-sm font-medium dark:text-dark-text">Department</label>
               <Input
                 placeholder="Department"
                 value={filters.department || ''}
@@ -397,7 +397,7 @@ export default function Expenses() {
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium">Search</label>
+              <label className="text-sm font-medium dark:text-dark-text">Search</label>
               <Input
                 placeholder="Search..."
                 value={filters.search || ''}
@@ -410,13 +410,13 @@ export default function Expenses() {
 
       {/* Error Display */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <AlertCircleIcon className="h-5 w-5 text-red-600" />
               <div>
-                <p className="text-red-800 font-medium">Error loading expenses</p>
-                <p className="text-red-600 text-sm">{error}</p>
+                <p className="text-red-800 dark:text-red-300 font-medium">Error loading expenses</p>
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
               </div>
             </div>
           </CardContent>
@@ -434,11 +434,11 @@ export default function Expenses() {
         <CardContent>
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <div className="text-muted-foreground">Loading expenses...</div>
+              <div className="text-muted-foreground dark:text-gray-300">Loading expenses...</div>
             </div>
           ) : expenses.length === 0 ? (
             <div className="flex items-center justify-center py-8">
-              <div className="text-muted-foreground">No expenses found for the selected criteria</div>
+              <div className="text-muted-foreground dark:text-gray-300">No expenses found for the selected criteria</div>
             </div>
           ) : (
             <Table>
@@ -457,7 +457,7 @@ export default function Expenses() {
               <TableBody>
                 {expenses.map((expense) => (
                   <TableRow key={expense.id}>
-                    <TableCell className="font-medium">
+                    <TableCell className="font-medium dark:text-dark-text">
                       {formatDate(expense.date)}
                     </TableCell>
                     <TableCell>
@@ -472,7 +472,7 @@ export default function Expenses() {
                     </TableCell>
                     <TableCell>{expense.vendor}</TableCell>
                     <TableCell>{expense.department}</TableCell>
-                    <TableCell className="text-right font-medium">
+                    <TableCell className="text-right font-medium dark:text-dark-text">
                       {formatCurrency(expense.amount)}
                     </TableCell>
                     <TableCell>
@@ -528,7 +528,7 @@ export default function Expenses() {
 
       {/* Add Expense Modal */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black bg-opacity-50 dark:bg-opacity-75 flex items-center justify-center z-50">
           <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <CardHeader>
               <CardTitle>Add New Expense</CardTitle>
@@ -539,7 +539,7 @@ export default function Expenses() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Date</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Date</label>
                   <Input
                     type="date"
                     value={newExpense.date}
@@ -547,7 +547,7 @@ export default function Expenses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Category</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Category</label>
                   <Select
                     options={EXPENSE_CATEGORIES}
                     value={newExpense.category}
@@ -555,7 +555,7 @@ export default function Expenses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Amount</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Amount</label>
                   <Input
                     type="number"
                     step="0.01"
@@ -565,7 +565,7 @@ export default function Expenses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Vendor</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Vendor</label>
                   <Input
                     placeholder="Vendor name"
                     value={newExpense.vendor}
@@ -573,7 +573,7 @@ export default function Expenses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Department</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Department</label>
                   <Input
                     placeholder="Department"
                     value={newExpense.department}
@@ -581,7 +581,7 @@ export default function Expenses() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Payment Method</label>
+                  <label className="text-sm font-medium dark:text-dark-text">Payment Method</label>
                   <Select
                     options={[{ value: '', label: 'Select method' }, ...PAYMENT_METHODS]}
                     value={newExpense.paymentMethod}
@@ -591,7 +591,7 @@ export default function Expenses() {
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium">Description</label>
+                <label className="text-sm font-medium dark:text-dark-text">Description</label>
                 <Input
                   placeholder="Expense description"
                   value={newExpense.description}
@@ -600,7 +600,7 @@ export default function Expenses() {
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium">Reference Number</label>
+                <label className="text-sm font-medium dark:text-dark-text">Reference Number</label>
                 <Input
                   placeholder="Invoice/Reference number"
                   value={newExpense.referenceNumber}
@@ -609,9 +609,9 @@ export default function Expenses() {
               </div>
               
               <div className="space-y-2">
-                <label className="text-sm font-medium">Notes</label>
+                <label className="text-sm font-medium dark:text-dark-text">Notes</label>
                 <textarea
-                  className="w-full p-2 border border-gray-300 rounded-md"
+                  className="w-full p-2 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md"
                   rows={3}
                   placeholder="Additional notes..."
                   value={newExpense.notes}

@@ -721,7 +721,7 @@ const Customers: React.FC = () => {
   if (isLoading && customers.length === 0) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Loading customers...</div>
+        <div className="text-lg text-gray-600 dark:text-gray-300">Loading customers...</div>
       </div>
     );
   }
@@ -730,7 +730,7 @@ const Customers: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-red-600">{error}</div>
+        <div className="text-lg text-red-600 dark:text-red-400">{error}</div>
       </div>
     );
   }
@@ -756,25 +756,25 @@ const Customers: React.FC = () => {
             />
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Show:</span>
-            <select 
-              value={itemsPerPage} 
+            <span className="text-sm text-gray-600 dark:text-gray-300">Show:</span>
+            <select
+              value={itemsPerPage}
               onChange={(e) => {
                 setItemsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text rounded-md text-sm"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-            <span className="text-sm text-gray-600">per page</span>
+            <span className="text-sm text-gray-600 dark:text-gray-300">per page</span>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-gray-600">
+          <label className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
             <input
               type="checkbox"
               checked={showHiddenOnly}
@@ -782,7 +782,7 @@ const Customers: React.FC = () => {
                 setShowHiddenOnly(e.target.checked);
                 setCurrentPage(1);
               }}
-              className="rounded border-gray-300"
+              className="rounded border-gray-300 dark:border-dark-border"
             />
             Show hidden only
           </label>
@@ -824,7 +824,7 @@ const Customers: React.FC = () => {
         </div>
       </div>
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25 overflow-hidden">
         <div className="overflow-auto max-h-96">
           <Table>
             <TableHeader>
@@ -841,7 +841,7 @@ const Customers: React.FC = () => {
           <TableBody>
             {customers.map((customer) => (
               <TableRow key={customer.id}>
-                <TableCell className="font-medium text-gray-900">
+                <TableCell className="font-medium text-gray-900 dark:text-dark-text">
                   {customer.name}
                 </TableCell>
                 <TableCell>{customer.email}</TableCell>
@@ -915,7 +915,7 @@ const Customers: React.FC = () => {
 
             {customers.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={7} className="text-center py-6 text-gray-500 dark:text-gray-400">
                   {searchQuery
                     ? 'No customers found matching your search criteria'
                     : showHiddenOnly
@@ -930,7 +930,7 @@ const Customers: React.FC = () => {
       </div>
 
       {/* Summary Information */}
-      <div className="flex justify-between items-center text-sm text-gray-600">
+      <div className="flex justify-between items-center text-sm text-gray-600 dark:text-gray-300">
         <span>
           {totalItems > 0
             ? `Showing ${((currentPage - 1) * itemsPerPage) + 1} to ${Math.min(currentPage * itemsPerPage, totalItems)} of ${totalItems} customers`
@@ -945,7 +945,7 @@ const Customers: React.FC = () => {
 
       {/* Pagination - Always show if there are customers */}
       {totalItems > 0 && (
-        <div className="flex justify-center items-center gap-4 p-4 bg-white rounded-lg shadow">
+        <div className="flex justify-center items-center gap-4 p-4 bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25">
           <button
             onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
             disabled={currentPage <= 1}
@@ -953,7 +953,7 @@ const Customers: React.FC = () => {
           >
             Previous
           </button>
-          <span className="px-4 py-2 bg-gray-100 rounded">
+          <span className="px-4 py-2 bg-gray-100 dark:bg-gray-800 dark:text-dark-text rounded">
             Page {currentPage} of {Math.max(1, totalPages)}
           </span>
           <button
@@ -963,7 +963,7 @@ const Customers: React.FC = () => {
           >
             Next
           </button>
-          <div className="ml-4 text-sm text-gray-600 bg-gray-100 px-3 py-1 rounded">
+          <div className="ml-4 text-sm text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-800 px-3 py-1 rounded">
             Total: {totalItems} customers
           </div>
         </div>
@@ -994,12 +994,12 @@ const Customers: React.FC = () => {
             </div>
           }
         >
-          <p className="text-gray-700">
+          <p className="text-gray-700 dark:text-gray-300">
             Are you sure you want to delete {currentCustomer.name}? This action cannot be undone.
           </p>
           {currentCustomer.accounts && currentCustomer.accounts.length > 0 && (
-            <div className="mt-4 p-4 bg-yellow-50 rounded-md">
-              <p className="text-sm text-yellow-700">
+            <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900 rounded-md">
+              <p className="text-sm text-yellow-700 dark:text-yellow-200">
                 <strong>Warning:</strong> This customer has {currentCustomer.accounts.length} active {currentCustomer.accounts.length === 1 ? 'account' : 'accounts'}.
                 Deleting this customer will require handling these accounts first.
               </p>
@@ -1034,10 +1034,10 @@ const Customers: React.FC = () => {
       >
         <div className="space-y-4">
           <div>
-            <p className="text-gray-700 mb-4">
+            <p className="text-gray-700 dark:text-gray-300 mb-4">
               Upload a CSV file to import multiple customers at once. Make sure your CSV file follows the correct format.
             </p>
-            
+
             <div className="mb-4">
               <Button
                 variant="outline"
@@ -1049,7 +1049,7 @@ const Customers: React.FC = () => {
               </Button>
             </div>
 
-            <div className="border-2 border-dashed border-gray-300 rounded-lg p-6">
+            <div className="border-2 border-dashed border-gray-300 dark:border-dark-border rounded-lg p-6">
               <input
                 ref={fileInputRef}
                 type="file"
@@ -1060,7 +1060,7 @@ const Customers: React.FC = () => {
               />
               <label
                 htmlFor="csv-upload"
-                className="cursor-pointer flex flex-col items-center justify-center text-gray-500 hover:text-gray-700"
+                className="cursor-pointer flex flex-col items-center justify-center text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
               >
                 <Upload size={48} className="mb-2" />
                 <span className="text-lg font-medium">Choose CSV file</span>
@@ -1069,13 +1069,13 @@ const Customers: React.FC = () => {
             </div>
 
             {csvFile && (
-              <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-md">
+              <div className="mt-4 p-3 bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700 rounded-md">
                 <div className="flex items-center">
-                  <FileText size={16} className="text-green-600 mr-2" />
-                  <span className="text-green-800 font-medium">{csvFile.name}</span>
+                  <FileText size={16} className="text-green-600 dark:text-green-300 mr-2" />
+                  <span className="text-green-800 dark:text-green-200 font-medium">{csvFile.name}</span>
                   <button
                     onClick={() => setCsvFile(null)}
-                    className="ml-auto text-green-600 hover:text-green-800"
+                    className="ml-auto text-green-600 dark:text-green-300 hover:text-green-800 dark:hover:text-green-100"
                   >
                     <X size={16} />
                   </button>
@@ -1086,33 +1086,33 @@ const Customers: React.FC = () => {
 
           {importResults && (
             <div className="mt-4">
-              <div className={`p-4 rounded-md ${importResults.success > 0 ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                <h4 className={`font-medium ${importResults.success > 0 ? 'text-green-800' : 'text-red-800'}`}>
+              <div className={`p-4 rounded-md ${importResults.success > 0 ? 'bg-green-50 dark:bg-green-900 border border-green-200 dark:border-green-700' : 'bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700'}`}>
+                <h4 className={`font-medium ${importResults.success > 0 ? 'text-green-800 dark:text-green-200' : 'text-red-800 dark:text-red-200'}`}>
                   Import Results
                 </h4>
-                <p className={`text-sm ${importResults.success > 0 ? 'text-green-700' : 'text-red-700'}`}>
+                <p className={`text-sm ${importResults.success > 0 ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
                   Successfully imported: {importResults.success} customers
                 </p>
-                
+
                 {importResults.errors.length > 0 && (
                   <div className="mt-3">
-                    <p className="text-sm text-red-700 font-medium">
+                    <p className="text-sm text-red-700 dark:text-red-300 font-medium">
                       Errors ({importResults.errors.length}):
                     </p>
-                    <div className="mt-2 text-sm text-red-600 max-h-48 overflow-y-auto bg-red-50 border border-red-200 rounded p-3">
+                    <div className="mt-2 text-sm text-red-600 dark:text-red-300 max-h-48 overflow-y-auto bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded p-3">
                       {importResults.errors.map((error, index) => {
                         // Split error message and raw details
-                        const [mainError, rawDetails] = error.includes(' | ') 
-                          ? error.split(' | ', 2) 
+                        const [mainError, rawDetails] = error.includes(' | ')
+                          ? error.split(' | ', 2)
                           : [error, ''];
-                        
+
                         return (
-                          <div key={index} className="mb-3 border-b border-red-200 pb-2 last:border-b-0 last:pb-0">
-                            <div className="font-medium text-red-800">
+                          <div key={index} className="mb-3 border-b border-red-200 dark:border-red-700 pb-2 last:border-b-0 last:pb-0">
+                            <div className="font-medium text-red-800 dark:text-red-200">
                               • {mainError}
                             </div>
                             {rawDetails && (
-                              <div className="mt-1 text-xs text-red-600 bg-red-100 p-2 rounded font-mono break-all">
+                              <div className="mt-1 text-xs text-red-600 dark:text-red-300 bg-red-100 dark:bg-red-800 p-2 rounded font-mono break-all">
                                 <strong>Raw Error:</strong> {rawDetails}
                               </div>
                             )}
@@ -1126,7 +1126,7 @@ const Customers: React.FC = () => {
             </div>
           )}
 
-          <div className="text-sm text-gray-600">
+          <div className="text-sm text-gray-600 dark:text-gray-300">
             <p className="font-medium">CSV Format Requirements:</p>
             <ul className="mt-1 space-y-1 text-sm">
               <li>• <strong>Required columns:</strong> name (or "Full Name")</li>

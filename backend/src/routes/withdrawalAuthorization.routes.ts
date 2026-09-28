@@ -1,5 +1,6 @@
 import { Router, RequestHandler } from 'express';
 import { authenticateToken } from '../middleware/auth';
+import { requireRole } from '../middleware/roleAuth';
 import {
   getWithdrawalAuthorizations,
   approveWithdrawalAuthorization,
@@ -20,12 +21,12 @@ router.get('/', getWithdrawalAuthorizations as RequestHandler);
 router.post('/', createWithdrawalAuthorization as RequestHandler);
 
 // POST /withdrawal-authorizations/:id/approve - Approve a withdrawal authorization
-router.post('/:id/approve', approveWithdrawalAuthorization as RequestHandler);
+router.post('/:id/approve', requireRole(['ADMIN', 'MANAGER']), approveWithdrawalAuthorization as RequestHandler);
 
 // POST /withdrawal-authorizations/:id/reject - Reject a withdrawal authorization
-router.post('/:id/reject', rejectWithdrawalAuthorization as RequestHandler);
+router.post('/:id/reject', requireRole(['ADMIN', 'MANAGER']), rejectWithdrawalAuthorization as RequestHandler);
 
 // POST /withdrawal-authorizations/:id/reverse - Reverse an approved withdrawal authorization
-router.post('/:id/reverse', reverseWithdrawalAuthorization as RequestHandler);
+router.post('/:id/reverse', requireRole(['ADMIN', 'MANAGER']), reverseWithdrawalAuthorization as RequestHandler);
 
 export default router;

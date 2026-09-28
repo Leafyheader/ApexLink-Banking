@@ -76,7 +76,7 @@ interface ToastProps {
 }
 
 const Toast: React.FC<ToastProps> = ({ toast, onRemove }) => {
-  const { id, message, type, duration = 5000 } = toast;
+  const { message, type, duration = 5000 } = toast;
 
   useEffect(() => {
     if (duration > 0) {
@@ -95,27 +95,27 @@ const Toast: React.FC<ToastProps> = ({ toast, onRemove }) => {
   };
 
   const bgColors = {
-    success: 'bg-green-50 border-green-200',
-    error: 'bg-red-50 border-red-200',
-    warning: 'bg-yellow-50 border-yellow-200',
-    info: 'bg-blue-50 border-blue-200',
+    success: 'bg-green-50 border-green-200 dark:bg-green-900 dark:border-green-700',
+    error: 'bg-red-50 border-red-200 dark:bg-red-900 dark:border-red-700',
+    warning: 'bg-yellow-50 border-yellow-200 dark:bg-yellow-900 dark:border-yellow-700',
+    info: 'bg-blue-50 border-blue-200 dark:bg-blue-900 dark:border-blue-700',
   };
 
   return (
     <div
-      className={`flex items-center p-4 mb-2 shadow-md rounded-lg border ${bgColors[type]} transform transition-all duration-300 ease-in-out`}
+      className={`flex items-center p-4 mb-2 shadow-md dark:shadow-gray-900/50 rounded-lg border ${bgColors[type]} transform transition-all duration-300 ease-in-out`}
       role="alert"
       aria-live="assertive"
       aria-atomic="true"
     >
       <div className="flex-shrink-0 mr-3">{icons[type]}</div>
-      <div className="flex-grow mr-2 text-sm">{message}</div>
+      <div className="flex-grow mr-2 text-sm text-gray-900 dark:text-dark-text">{message}</div>
       <button
-        className="flex-shrink-0 p-1 rounded-full hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-400"
+        className="flex-shrink-0 p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-400"
         onClick={onRemove}
         aria-label="Close"
       >
-        <X className="h-4 w-4 text-gray-500" />
+        <X className="h-4 w-4 text-gray-500 dark:text-gray-400" />
       </button>
     </div>
   );

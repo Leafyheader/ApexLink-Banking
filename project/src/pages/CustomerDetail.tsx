@@ -23,7 +23,7 @@ import Badge from '../components/ui/Badge';
 import Modal from '../components/ui/Modal';
 import { Customer } from '../types';
 import { formatDate } from '../lib/utils';
-import api from '../lib/api';
+import api, { resolveBackendAssetUrl } from '../lib/api';
 
 const CustomerDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -66,9 +66,9 @@ const CustomerDetail: React.FC = () => {
   if (error) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <AlertCircle className="w-12 h-12 text-red-600 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
-        <p className="text-lg text-gray-600 mb-8">{error}</p>
+        <AlertCircle className="w-12 h-12 text-red-600 dark:text-red-400 mb-4" />
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-dark-text mb-4">Error</h1>
+        <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">{error}</p>
         <div className="flex gap-4">
           <Button onClick={fetchCustomer}>Try Again</Button>
           <Button variant="outline" onClick={() => navigate('/customers')}>
@@ -82,9 +82,9 @@ const CustomerDetail: React.FC = () => {
   if (!customer) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <h1 className="text-4xl font-bold text-gray-800 mb-4">404</h1>
-        <p className="text-xl text-gray-600 mb-8">Customer not found</p>
-        <Link to="/customers" className="text-blue-600 hover:text-blue-800">
+        <h1 className="text-4xl font-bold text-gray-800 dark:text-dark-text mb-4">404</h1>
+        <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">Customer not found</p>
+        <Link to="/customers" className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300">
           Back to Customers
         </Link>
       </div>
@@ -170,7 +170,7 @@ const CustomerDetail: React.FC = () => {
           >
             Back to Customers
           </Button>
-          <h1 className="text-2xl font-bold text-gray-900">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">
             Customer Details
           </h1>
         </div>        <div className="flex items-center space-x-3">
@@ -198,13 +198,13 @@ const CustomerDetail: React.FC = () => {
             <CardContent className="text-center pt-6">              {/* Profile Photo/Avatar */}
               <div className="mb-6">
                 {customer.photo ? (
-                  <div className="w-32 h-32 rounded-full mx-auto border-4 border-white shadow-lg overflow-hidden">
+                  <div className="w-32 h-32 rounded-full mx-auto border-4 border-white dark:border-dark-border shadow-lg overflow-hidden">
                     <img
                       src={
-                        customer.photo.startsWith('data:') 
-                          ? customer.photo 
+                        customer.photo.startsWith('data:')
+                          ? customer.photo
                           : customer.photo.startsWith('/uploads/')
-                            ? `http://localhost:5000${customer.photo}`
+                            ? resolveBackendAssetUrl(customer.photo)
                             : `data:image/jpeg;base64,${customer.photo}`
                       }
                       alt={`${customer.name} profile photo`}
@@ -216,15 +216,15 @@ const CustomerDetail: React.FC = () => {
                         target.nextElementSibling?.classList.remove('hidden');
                       }}
                     />
-                    <div className="w-full h-full bg-blue-100 flex items-center justify-center hidden">
-                      <span className="text-4xl font-semibold text-blue-700">
+                    <div className="w-full h-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center hidden">
+                      <span className="text-4xl font-semibold text-blue-700 dark:text-blue-200">
                         {getInitials(customer.name)}
                       </span>
                     </div>
                   </div>
                 ) : (
-                  <div className="w-32 h-32 rounded-full mx-auto bg-blue-100 flex items-center justify-center border-4 border-white shadow-lg">
-                    <span className="text-4xl font-semibold text-blue-700">
+                  <div className="w-32 h-32 rounded-full mx-auto bg-blue-100 dark:bg-blue-900 flex items-center justify-center border-4 border-white dark:border-dark-border shadow-lg">
+                    <span className="text-4xl font-semibold text-blue-700 dark:text-blue-200">
                       {getInitials(customer.name)}
                     </span>
                   </div>
@@ -232,7 +232,7 @@ const CustomerDetail: React.FC = () => {
               </div>
 
               {/* Customer Name and Status */}
-              <h2 className="text-xl font-semibold text-gray-900 mb-2">
+              <h2 className="text-xl font-semibold text-gray-900 dark:text-dark-text mb-2">
                 {customer.name}
               </h2>
               <div className="mb-6">
@@ -243,33 +243,33 @@ const CustomerDetail: React.FC = () => {
 
               {/* Contact Information */}
               <div className="space-y-4 text-left">
-                <div className="flex items-center text-gray-600">
+                <div className="flex items-center text-gray-600 dark:text-gray-300">
                   <Mail className="h-5 w-5 mr-3 flex-shrink-0" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-gray-500">Email</p>
-                    <p className="text-gray-900 truncate">{customer.email}</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Email</p>
+                    <p className="text-gray-900 dark:text-dark-text truncate">{customer.email}</p>
                   </div>
-                </div>                <div className="flex items-center text-gray-600">
+                </div>                <div className="flex items-center text-gray-600 dark:text-gray-300">
                   <Phone className="h-5 w-5 mr-3 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-gray-500">Phone</p>
-                    <p className="text-gray-900">{customer.phone}</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Phone</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.phone}</p>
                   </div>
                 </div>
 
-                <div className="flex items-start text-gray-600">
+                <div className="flex items-start text-gray-600 dark:text-gray-300">
                   <MapPin className="h-5 w-5 mr-3 flex-shrink-0 mt-0.5" />
                   <div>
-                    <p className="text-sm font-medium text-gray-500">Address</p>
-                    <p className="text-gray-900">{customer.address}</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Address</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.address}</p>
                   </div>
                 </div>
 
-                <div className="flex items-center text-gray-600">
+                <div className="flex items-center text-gray-600 dark:text-gray-300">
                   <Calendar className="h-5 w-5 mr-3 flex-shrink-0" />
                   <div>
-                    <p className="text-sm font-medium text-gray-500">Date Joined</p>
-                    <p className="text-gray-900">{formatDate(customer.dateJoined)}</p>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Date Joined</p>
+                    <p className="text-gray-900 dark:text-dark-text">{formatDate(customer.dateJoined)}</p>
                   </div>
                 </div>
               </div>
@@ -289,7 +289,7 @@ const CustomerDetail: React.FC = () => {
                 </CardTitle>
                 <Link
                   to="/accounts"
-                  className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                  className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 text-sm font-medium"
                 >
                   View All Accounts
                 </Link>
@@ -299,27 +299,27 @@ const CustomerDetail: React.FC = () => {
               {customer.accounts.length > 0 ? (
                 <div className="space-y-4">
                   {customer.accounts.map((account) => (
-                    <div key={account.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div key={account.id} className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                       <div>
-                        <p className="font-medium text-gray-900">{account.accountNumber}</p>
-                        <p className="text-sm text-gray-500">
+                        <p className="font-medium text-gray-900 dark:text-dark-text">{account.accountNumber}</p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
                           {account.type.charAt(0).toUpperCase() + account.type.slice(1)} Account
                         </p>
                       </div>
                       <div className="text-right">
-                        <p className="font-medium text-gray-900">${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
-                        <p className="text-sm text-green-600">{account.status || 'Active'}</p>
+                        <p className="font-medium text-gray-900 dark:text-dark-text">${Number(account.balance).toLocaleString('en-US', { minimumFractionDigits: 2 })}</p>
+                        <p className="text-sm text-green-600 dark:text-green-400">{account.status || 'Active'}</p>
                       </div>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8">
-                  <CreditCard className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500 mb-4">No accounts found for this customer</p>
+                  <CreditCard className="h-12 w-12 text-gray-400 dark:text-gray-500 mx-auto mb-4" />
+                  <p className="text-gray-500 dark:text-gray-400 mb-4">No accounts found for this customer</p>
                   <Link
                     to="/accounts"
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-600 bg-blue-50 hover:bg-blue-100"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-900 hover:bg-blue-100 dark:hover:bg-blue-800"
                   >
                     Create Account
                   </Link>
@@ -338,124 +338,124 @@ const CustomerDetail: React.FC = () => {
             </CardHeader>            <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500 mb-2">Customer ID</h4>
-                  <p className="text-gray-900 font-mono">{customer.id}</p>
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Customer ID</h4>
+                  <p className="text-gray-900 dark:text-dark-text font-mono">{customer.id}</p>
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500 mb-2">KYC Status</h4>
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">KYC Status</h4>
                   <Badge variant={getStatusVariant(customer.kycStatus)}>
                     {customer.kycStatus.charAt(0).toUpperCase() + customer.kycStatus.slice(1)}
                   </Badge>
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500 mb-2">Date Joined</h4>
-                  <p className="text-gray-900">{formatDate(customer.dateJoined)}</p>
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Date Joined</h4>
+                  <p className="text-gray-900 dark:text-dark-text">{formatDate(customer.dateJoined)}</p>
                 </div>
                 <div>
-                  <h4 className="text-sm font-medium text-gray-500 mb-2">Total Accounts</h4>
-                  <p className="text-gray-900">{customer.accounts.length}</p>
+                  <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Total Accounts</h4>
+                  <p className="text-gray-900 dark:text-dark-text">{customer.accounts.length}</p>
                 </div>
                 
                 {/* Bio Data Fields */}
                 {customer.firstName && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">First Name</h4>
-                    <p className="text-gray-900">{customer.firstName}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">First Name</h4>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.firstName}</p>
                   </div>
                 )}
                 
                 {customer.surname && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Surname</h4>
-                    <p className="text-gray-900">{customer.surname}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Surname</h4>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.surname}</p>
                   </div>
                 )}
                 
                 {customer.otherName && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Other Name</h4>
-                    <p className="text-gray-900">{customer.otherName}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Other Name</h4>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.otherName}</p>
                   </div>
                 )}
                 
                 {customer.gender && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Gender</h4>
-                    <p className="text-gray-900 capitalize">{customer.gender}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Gender</h4>
+                    <p className="text-gray-900 dark:text-dark-text capitalize">{customer.gender}</p>
                   </div>
                 )}
                 
                 {customer.dateOfBirth && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <Baby className="h-4 w-4 mr-1" />
                       Date of Birth
                     </h4>
-                    <p className="text-gray-900">{formatDate(customer.dateOfBirth)}</p>
+                    <p className="text-gray-900 dark:text-dark-text">{formatDate(customer.dateOfBirth)}</p>
                   </div>
                 )}
                 
                 {customer.maritalStatus && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <Heart className="h-4 w-4 mr-1" />
                       Marital Status
                     </h4>
-                    <p className="text-gray-900 capitalize">{customer.maritalStatus}</p>
+                    <p className="text-gray-900 dark:text-dark-text capitalize">{customer.maritalStatus}</p>
                   </div>
                 )}
                 
                 {customer.occupation && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <Briefcase className="h-4 w-4 mr-1" />
                       Occupation
                     </h4>
-                    <p className="text-gray-900">{customer.occupation}</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.occupation}</p>
                   </div>
                 )}
                 
                 {customer.workplace && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <Building className="h-4 w-4 mr-1" />
                       Workplace
                     </h4>
-                    <p className="text-gray-900">{customer.workplace}</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.workplace}</p>
                   </div>
                 )}
                 
                 {customer.city && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <MapPin className="h-4 w-4 mr-1" />
                       City
                     </h4>
-                    <p className="text-gray-900">{customer.city}</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.city}</p>
                   </div>
                 )}
                 
                 {customer.residentialAddress && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Residential Address</h4>
-                    <p className="text-gray-900">{customer.residentialAddress}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Residential Address</h4>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.residentialAddress}</p>
                   </div>
                 )}
                 
                 {customer.postalAddress && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2">Postal Address</h4>
-                    <p className="text-gray-900">{customer.postalAddress}</p>
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Postal Address</h4>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.postalAddress}</p>
                   </div>
                 )}
                 
                 {customer.contactNumber && (
                   <div>
-                    <h4 className="text-sm font-medium text-gray-500 mb-2 flex items-center">
+                    <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2 flex items-center">
                       <Phone className="h-4 w-4 mr-1" />
                       Contact Number
                     </h4>
-                    <p className="text-gray-900">{customer.contactNumber}</p>
+                    <p className="text-gray-900 dark:text-dark-text">{customer.contactNumber}</p>
                   </div>
                 )}
               </div>
@@ -474,15 +474,15 @@ const CustomerDetail: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {customer.identificationType && (
                     <div>
-                      <h4 className="text-sm font-medium text-gray-500 mb-2">Identification Type</h4>
-                      <p className="text-gray-900">{customer.identificationType}</p>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Identification Type</h4>
+                      <p className="text-gray-900 dark:text-dark-text">{customer.identificationType}</p>
                     </div>
                   )}
                   
                   {customer.identificationNumber && (
                     <div>
-                      <h4 className="text-sm font-medium text-gray-500 mb-2">Identification Number</h4>
-                      <p className="text-gray-900 font-mono">{customer.identificationNumber}</p>
+                      <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Identification Number</h4>
+                      <p className="text-gray-900 dark:text-dark-text font-mono">{customer.identificationNumber}</p>
                     </div>
                   )}
                 </div>
@@ -503,29 +503,29 @@ const CustomerDetail: React.FC = () => {
                 <div className="space-y-6">
                   {/* Primary Beneficiary */}
                   {customer.beneficiaryName && (
-                    <div className="p-4 bg-gray-50 rounded-lg">
-                      <h5 className="text-sm font-semibold text-gray-700 mb-3">Primary Beneficiary</h5>
+                    <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Primary Beneficiary</h5>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
-                          <h4 className="text-xs font-medium text-gray-500 mb-1">Name</h4>
-                          <p className="text-gray-900">{customer.beneficiaryName}</p>
+                          <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</h4>
+                          <p className="text-gray-900 dark:text-dark-text">{customer.beneficiaryName}</p>
                         </div>
                         {customer.beneficiaryContact && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Contact</h4>
-                            <p className="text-gray-900">{customer.beneficiaryContact}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Contact</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiaryContact}</p>
                           </div>
                         )}
                         {customer.beneficiaryRelation && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Relation</h4>
-                            <p className="text-gray-900">{customer.beneficiaryRelation}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Relation</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiaryRelation}</p>
                           </div>
                         )}
                         {customer.beneficiaryPercentage && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Percentage</h4>
-                            <p className="text-gray-900">{customer.beneficiaryPercentage}%</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Percentage</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiaryPercentage}%</p>
                           </div>
                         )}
                       </div>
@@ -534,29 +534,29 @@ const CustomerDetail: React.FC = () => {
 
                   {/* Secondary Beneficiary */}
                   {customer.beneficiary2Name && (
-                    <div className="p-4 bg-blue-50 rounded-lg">
-                      <h5 className="text-sm font-semibold text-gray-700 mb-3">Secondary Beneficiary</h5>
+                    <div className="p-4 bg-blue-50 dark:bg-blue-900 rounded-lg">
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Secondary Beneficiary</h5>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
-                          <h4 className="text-xs font-medium text-gray-500 mb-1">Name</h4>
-                          <p className="text-gray-900">{customer.beneficiary2Name}</p>
+                          <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</h4>
+                          <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary2Name}</p>
                         </div>
                         {customer.beneficiary2Contact && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Contact</h4>
-                            <p className="text-gray-900">{customer.beneficiary2Contact}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Contact</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary2Contact}</p>
                           </div>
                         )}
                         {customer.beneficiary2Relation && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Relation</h4>
-                            <p className="text-gray-900">{customer.beneficiary2Relation}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Relation</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary2Relation}</p>
                           </div>
                         )}
                         {customer.beneficiary2Percentage && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Percentage</h4>
-                            <p className="text-gray-900">{customer.beneficiary2Percentage}%</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Percentage</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary2Percentage}%</p>
                           </div>
                         )}
                       </div>
@@ -565,29 +565,29 @@ const CustomerDetail: React.FC = () => {
 
                   {/* Third Beneficiary */}
                   {customer.beneficiary3Name && (
-                    <div className="p-4 bg-green-50 rounded-lg">
-                      <h5 className="text-sm font-semibold text-gray-700 mb-3">Third Beneficiary</h5>
+                    <div className="p-4 bg-green-50 dark:bg-green-900 rounded-lg">
+                      <h5 className="text-sm font-semibold text-gray-700 dark:text-gray-200 mb-3">Third Beneficiary</h5>
                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         <div>
-                          <h4 className="text-xs font-medium text-gray-500 mb-1">Name</h4>
-                          <p className="text-gray-900">{customer.beneficiary3Name}</p>
+                          <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Name</h4>
+                          <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary3Name}</p>
                         </div>
                         {customer.beneficiary3Contact && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Contact</h4>
-                            <p className="text-gray-900">{customer.beneficiary3Contact}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Contact</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary3Contact}</p>
                           </div>
                         )}
                         {customer.beneficiary3Relation && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Relation</h4>
-                            <p className="text-gray-900">{customer.beneficiary3Relation}</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Relation</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary3Relation}</p>
                           </div>
                         )}
                         {customer.beneficiary3Percentage && (
                           <div>
-                            <h4 className="text-xs font-medium text-gray-500 mb-1">Percentage</h4>
-                            <p className="text-gray-900">{customer.beneficiary3Percentage}%</p>
+                            <h4 className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Percentage</h4>
+                            <p className="text-gray-900 dark:text-dark-text">{customer.beneficiary3Percentage}%</p>
                           </div>
                         )}
                       </div>
@@ -609,12 +609,12 @@ const CustomerDetail: React.FC = () => {
               </CardHeader>
               <CardContent>
                 <div className="flex justify-center">
-                  <div className="max-w-md w-full border-2 border-gray-200 rounded-lg p-4 bg-gray-50">                    <img
+                  <div className="max-w-md w-full border-2 border-gray-200 dark:border-dark-border rounded-lg p-4 bg-gray-50 dark:bg-gray-800">                    <img
                       src={
-                        customer.signature.startsWith('data:') 
-                          ? customer.signature 
+                        customer.signature.startsWith('data:')
+                          ? customer.signature
                           : customer.signature.startsWith('/uploads/')
-                            ? `http://localhost:5000${customer.signature}`
+                            ? resolveBackendAssetUrl(customer.signature)
                             : `data:image/png;base64,${customer.signature}`
                       }
                       alt={`${customer.name} signature`}
@@ -624,7 +624,7 @@ const CustomerDetail: React.FC = () => {
                         (e.target as HTMLImageElement).style.display = 'none';
                         const parent = (e.target as HTMLImageElement).parentElement;
                         if (parent) {
-                          parent.innerHTML = '<p class="text-gray-500 text-center">Signature unavailable</p>';
+                          parent.innerHTML = '<p class="text-gray-500 dark:text-gray-400 text-center">Signature unavailable</p>';
                         }
                       }}
                     />
@@ -645,26 +645,26 @@ const CustomerDetail: React.FC = () => {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                 <Link
                   to="/accounts"
-                  className="flex flex-col items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex flex-col items-center p-4 border border-gray-200 dark:border-dark-border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <CreditCard className="h-8 w-8 text-blue-600 mb-2" />
-                  <span className="text-sm font-medium text-gray-900">Create Account</span>
+                  <CreditCard className="h-8 w-8 text-blue-600 dark:text-blue-400 mb-2" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-dark-text">Create Account</span>
                 </Link>
 
                 <Link
                   to={`/customers/${customer.id}/transactions`}
-                  className="flex flex-col items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex flex-col items-center p-4 border border-gray-200 dark:border-dark-border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <Building className="h-8 w-8 text-green-600 mb-2" />
-                  <span className="text-sm font-medium text-gray-900">View Transactions</span>
+                  <Building className="h-8 w-8 text-green-600 dark:text-green-400 mb-2" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-dark-text">View Transactions</span>
                 </Link>
-                
+
                 <button
                   onClick={handleEditCustomer}
-                  className="flex flex-col items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+                  className="flex flex-col items-center p-4 border border-gray-200 dark:border-dark-border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                 >
-                  <UserCog className="h-8 w-8 text-purple-600 mb-2" />
-                  <span className="text-sm font-medium text-gray-900">Edit Profile</span>
+                  <UserCog className="h-8 w-8 text-purple-600 dark:text-purple-400 mb-2" />
+                  <span className="text-sm font-medium text-gray-900 dark:text-dark-text">Edit Profile</span>
                 </button>
 
                 {/* Verify KYC Button - Only show if customer is not already verified */}
@@ -672,10 +672,10 @@ const CustomerDetail: React.FC = () => {
                   <button
                     onClick={handleVerifyCustomer}
                     disabled={actionLoading}
-                    className="flex flex-col items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex flex-col items-center p-4 border border-gray-200 dark:border-dark-border rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <CheckCircle className="h-8 w-8 text-emerald-600 mb-2" />
-                    <span className="text-sm font-medium text-gray-900">Verify KYC</span>
+                    <CheckCircle className="h-8 w-8 text-emerald-600 dark:text-emerald-400 mb-2" />
+                    <span className="text-sm font-medium text-gray-900 dark:text-dark-text">Verify KYC</span>
                   </button>
                 )}
               </div>
@@ -704,12 +704,12 @@ const CustomerDetail: React.FC = () => {
           </div>
         }
       >
-        <p className="text-gray-700">
+        <p className="text-gray-700 dark:text-gray-300">
           Are you sure you want to delete {customer.name}? This action cannot be undone.
         </p>
         {customer.accounts.length > 0 && (
-          <div className="mt-4 p-4 bg-yellow-50 rounded-md">
-            <p className="text-sm text-yellow-700">
+          <div className="mt-4 p-4 bg-yellow-50 dark:bg-yellow-900 rounded-md">
+            <p className="text-sm text-yellow-700 dark:text-yellow-200">
               <strong>Warning:</strong> This customer has {customer.accounts.length} active {customer.accounts.length === 1 ? 'account' : 'accounts'}.
               Deleting this customer will require handling these accounts first.
             </p>

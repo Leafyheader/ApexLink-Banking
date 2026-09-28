@@ -101,7 +101,7 @@ const Dashboard: React.FC = () => {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Loading dashboard...</div>
+        <div className="text-lg text-gray-600 dark:text-gray-300">Loading dashboard...</div>
       </div>
     );
   }
@@ -109,7 +109,7 @@ const Dashboard: React.FC = () => {
   if (error) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-red-600">{error}</div>
+        <div className="text-lg text-red-600 dark:text-red-400">{error}</div>
       </div>
     );
   }
@@ -117,7 +117,7 @@ const Dashboard: React.FC = () => {
   if (!dashboardData) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">No data available</div>
+        <div className="text-lg text-gray-600 dark:text-gray-300">No data available</div>
       </div>
     );
   }
@@ -162,9 +162,9 @@ const Dashboard: React.FC = () => {
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Loan Portfolio Chart */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-800">Account Distribution</h3>
+        <div className="bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-border">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-dark-text">Account Distribution</h3>
           </div>
           <div className="p-6 h-80">
             {dashboardStats?.accountDistribution ? (
@@ -197,17 +197,17 @@ const Dashboard: React.FC = () => {
                 </PieChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full bg-gray-50">
-                <p className="text-gray-500">Loading account distribution...</p>
+              <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800">
+                <p className="text-gray-500 dark:text-gray-400">Loading account distribution...</p>
               </div>
             )}
           </div>
         </div>
 
         {/* Transaction Trends Chart */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-800">Monthly Transaction Trends</h3>
+        <div className="bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-border">
+            <h3 className="text-lg font-semibold text-gray-800 dark:text-dark-text">Monthly Transaction Trends</h3>
           </div>
           <div className="p-6 h-80">
             {dashboardStats?.monthlyTransactions ? (
@@ -244,8 +244,8 @@ const Dashboard: React.FC = () => {
                 </LineChart>
               </ResponsiveContainer>
             ) : (
-              <div className="flex items-center justify-center h-full bg-gray-50">
-                <p className="text-gray-500">Loading transaction trends...</p>
+              <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800">
+                <p className="text-gray-500 dark:text-gray-400">Loading transaction trends...</p>
               </div>
             )}
           </div>
@@ -253,9 +253,9 @@ const Dashboard: React.FC = () => {
       </div>
 
       {/* Transaction Volume Bar Chart */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-800">Monthly Transaction Volume</h3>
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow dark:shadow-gray-800/25 overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-200 dark:border-dark-border">
+          <h3 className="text-lg font-semibold text-gray-800 dark:text-dark-text">Monthly Transaction Volume</h3>
         </div>
         <div className="p-6 h-80">
           {dashboardStats?.monthlyTransactions ? (
@@ -283,8 +283,8 @@ const Dashboard: React.FC = () => {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-full bg-gray-50">
-              <p className="text-gray-500">Loading transaction volume...</p>
+            <div className="flex items-center justify-center h-full bg-gray-50 dark:bg-gray-800">
+              <p className="text-gray-500 dark:text-gray-400">Loading transaction volume...</p>
             </div>
           )}
         </div>

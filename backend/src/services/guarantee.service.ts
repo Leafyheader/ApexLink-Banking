@@ -8,6 +8,7 @@ export interface GuaranteeInfo {
   guaranteeAmount: number;
   guaranteePercentage: number;
   loanStatus: string;
+  loanAuthorizationStatus: string;
   loanDate: Date;
   isActive: boolean;
 }
@@ -78,16 +79,17 @@ export class GuaranteeService {
       }
     });
 
-    // Get loans owned by the account holder
-    const ownLoans = await this.prisma.loan.findMany({
-      where: { accountId },
-      select: {
-        id: true,
-        amount: true,
-        outstandingBalance: true,
-        status: true
+    // Loans this account backs for its own holder. Found through the LOAN_OWN_BACKING hold,
+    // not loan.accountId - that is the LOAN account, never the borrower's savings account.
+    const ownBackingHolds = await this.prisma.accountRestriction.findMany({
+      where: { accountId, restrictionType: 'LOAN_OWN_BACKING', isActive: true, loanId: { not: null } },
+      include: {
+        loan: { select: { id: true, amount: true, outstandingBalance: true, status: true } }
       }
     });
+    const ownLoans = ownBackingHolds
+      .map(hold => hold.loan)
+      .filter((loan): loan is NonNullable<typeof loan> => loan !== null);
 
     // Calculate total restricted amount
     // NOTE: For guarantor accounts, the guaranteed amount has already been deducted
@@ -118,6 +120,7 @@ export class GuaranteeService {
         guaranteeAmount: guaranteedAmount,
         guaranteePercentage: (guaranteedAmount / Number(loan.amount)) * 100,
         loanStatus: loan.status,
+        loanAuthorizationStatus: loan.authorizationStatus,
         loanDate: loan.startDate,
         isActive: true
       });
@@ -177,52 +180,59 @@ export class GuaranteeService {
     let restrictedByGuarantees = 0;
     let restrictedByOwnLoans = 0;
 
-    // 1. Check restrictions from guaranteeing other loans
-    // NOTE: For guarantor accounts, the guaranteed amounts have already been deducted
-    // from their balance when loans were created. No additional restriction needed.
+    // 1. Check restrictions from guaranteeing other loans.
+    // Once a loan is APPROVED, the guaranteed amount has already been physically deducted
+    // from the guarantor's balance, so no further restriction is needed at that point.
+    // While a loan is still PENDING approval, the guarantee hasn't been deducted yet - an
+    // active AccountRestriction row (created at loan-creation time, released on
+    // approval/rejection/cancellation) reserves exactly that amount so it can't be
+    // withdrawn out from under the loan while it awaits a decision.
     const guaranteeInfo = await this.getAccountGuaranteeInfo(accountId);
-    restrictedByGuarantees = 0; // No restriction since amounts already deducted
 
-    // Add informational entry if there are active guarantees (but no restriction)
-    if (guaranteeInfo.totalLoansGuaranteed > 0) {
-      const totalGuaranteedAmount = guaranteeInfo.activeGuarantees.reduce(
-        (sum, g) => sum + g.guaranteeAmount, 0
-      );
+    const activeGuaranteeRestrictions = await this.prisma.accountRestriction.findMany({
+      where: { accountId, restrictionType: 'LOAN_GUARANTEE', isActive: true }
+    });
+    restrictedByGuarantees = activeGuaranteeRestrictions.reduce(
+      (sum, r) => sum + Number(r.restrictedAmount), 0
+    );
+
+    if (restrictedByGuarantees > 0) {
       restrictions.push({
         type: 'GUARANTEE',
-        amount: 0, // No restriction - money already deducted
-        description: `₵${totalGuaranteedAmount.toLocaleString()} already deducted for ${guaranteeInfo.totalLoansGuaranteed} loan guarantee(s)`
+        amount: restrictedByGuarantees,
+        description: `₵${restrictedByGuarantees.toLocaleString()} reserved for ${activeGuaranteeRestrictions.length} pending loan guarantee(s)`
       });
     }
 
-    // 2. Enhanced restriction for own loans - must have more than loan amount to withdraw
-    const ownActiveLoans = await this.prisma.loan.findMany({
-      where: {
-        accountId,
-        status: 'ACTIVE'
-      },
-      select: {
-        id: true,
-        amount: true,
-        outstandingBalance: true
-      }
+    // Add informational entry for already-approved guarantees only (no restriction - the
+    // money is already deducted from the balance shown). Pending ones are covered by the
+    // restriction above instead, so they aren't double-counted here.
+    const approvedGuarantees = guaranteeInfo.activeGuarantees.filter(
+      g => g.loanAuthorizationStatus === 'APPROVED'
+    );
+    if (approvedGuarantees.length > 0) {
+      const totalGuaranteedAmount = approvedGuarantees.reduce((sum, g) => sum + g.guaranteeAmount, 0);
+      restrictions.push({
+        type: 'GUARANTEE',
+        amount: 0, // No restriction - money already deducted
+        description: `₵${totalGuaranteedAmount.toLocaleString()} already deducted for ${approvedGuarantees.length} loan guarantee(s)`
+      });
+    }
+
+    // 2. The borrower's own backing: 50% of each loan this account backs is held from the moment
+    // the loan is requested until it is fully repaid (or rejected/cancelled).
+    const ownBackingHolds = await this.prisma.accountRestriction.findMany({
+      where: { accountId, restrictionType: 'LOAN_OWN_BACKING', isActive: true }
     });
 
-    for (const loan of ownActiveLoans) {
-      const loanAmount = Number(loan.amount);
-      
-      // For own loans, customer must maintain balance > loan amount to withdraw
-      // This ensures they always have enough to cover their loan obligation
-      if (accountBalance <= loanAmount) {
-        const restrictedAmount = loanAmount - accountBalance + 1; // +1 to ensure they have MORE than loan amount
-        restrictedByOwnLoans += restrictedAmount;
-        
-        restrictions.push({
-          type: 'OWN_LOAN',
-          amount: restrictedAmount,
-          description: `Must maintain balance greater than loan amount (₵${loanAmount.toLocaleString()})`
-        });
-      }
+    for (const hold of ownBackingHolds) {
+      const heldAmount = Number(hold.restrictedAmount);
+      restrictedByOwnLoans += heldAmount;
+      restrictions.push({
+        type: 'OWN_LOAN',
+        amount: heldAmount,
+        description: `₵${heldAmount.toLocaleString()} held as your own backing for a loan until it is fully repaid`
+      });
     }
 
     const totalRestricted = restrictedByGuarantees + restrictedByOwnLoans;
@@ -273,13 +283,12 @@ export class GuaranteeService {
         amount: totalOwed
       });
 
-      // Warning if balance is close to loan amount
-      const maxLoanAmount = Math.max(...guaranteeInfo.ownLoans.map(l => l.amount));
-      if (withdrawalInfo.accountBalance <= maxLoanAmount * 1.1) { // Within 10% of loan amount
+      // Warning if there's little or nothing left above the held amounts
+      if (withdrawalInfo.restrictedByOwnLoans > 0 && withdrawalInfo.availableAmount <= withdrawalInfo.restrictedByOwnLoans * 0.1) {
         notifications.push({
           type: 'WARNING',
           title: 'Low Balance Warning',
-          message: `Your balance is close to your loan amount. Maintain balance above ₵${maxLoanAmount.toLocaleString()} to continue withdrawals.`
+          message: `₵${withdrawalInfo.restrictedByOwnLoans.toLocaleString()} of this balance is held as loan backing. Only ₵${withdrawalInfo.availableAmount.toLocaleString()} is available to withdraw.`
         });
       }
     }

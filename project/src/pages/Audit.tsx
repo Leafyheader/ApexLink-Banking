@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Search, Eye, RefreshCw } from 'lucide-react';
 import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
@@ -19,6 +20,8 @@ interface AuditEvent {
   outcome: string;
   actorUserId: string | null;
   actorRole: string | null;
+  actorName: string | null;
+  actorUsername: string | null;
   requestId: string | null;
   method: string | null;
   route: string | null;
@@ -32,6 +35,31 @@ interface AuditEvent {
   eventHash: string;
   createdAt: string;
 }
+
+const ACTION_VERBS: Record<string, string> = {
+  CREATE: 'Created',
+  UPDATE: 'Updated',
+  DELETE: 'Deleted',
+  APPROVE: 'Approved',
+  REJECT: 'Rejected',
+  REVERSE: 'Reversed',
+  STATUS_CHANGE: 'Changed status of',
+};
+
+const friendlyAction = (action: string): string =>
+  ACTION_VERBS[action] || (action.charAt(0) + action.slice(1).toLowerCase());
+
+const friendlyEntity = (entityType: string): string =>
+  entityType
+    .split('_')
+    .filter(Boolean)
+    .map((word) => word.charAt(0) + word.slice(1).toLowerCase())
+    .join(' ');
+
+const actorLabel = (event: AuditEvent): string => event.actorName || event.actorUsername || 'System';
+
+const summarize = (event: AuditEvent): string =>
+  `${friendlyAction(event.action)} ${friendlyEntity(event.entityType)}`;
 
 interface AuditResponse {
   events: AuditEvent[];
@@ -54,17 +82,16 @@ const stringifyJson = (value: unknown): string => {
   }
 };
 
-const truncate = (value: string | null, maxLength: number): string => {
-  if (!value) return '-';
-  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
-};
-
 const Audit: React.FC = () => {
+  // Lets other pages (e.g. Account Detail's "View Audit Trail" button) deep-link straight into
+  // a pre-filtered view instead of dumping the user on an empty, unfiltered audit log.
+  const [searchParams] = useSearchParams();
+
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(searchParams.get('search') || '');
   const [outcome, setOutcome] = useState('');
   const [action, setAction] = useState('');
   const [entityType, setEntityType] = useState('');
@@ -270,39 +297,38 @@ const Audit: React.FC = () => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Time</TableHead>
-                  <TableHead>Event</TableHead>
-                  <TableHead>Action</TableHead>
+                  <TableHead>When</TableHead>
+                  <TableHead>Who</TableHead>
+                  <TableHead>What happened</TableHead>
                   <TableHead>Outcome</TableHead>
-                  <TableHead>Actor</TableHead>
-                  <TableHead>Route</TableHead>
                   <TableHead>Reference</TableHead>
-                  <TableHead>Hash</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Details</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading ? (
                   <TableRow>
-                    <TableCell colSpan={9}>Loading audit events...</TableCell>
+                    <TableCell colSpan={6}>Loading audit events...</TableCell>
                   </TableRow>
                 ) : events.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={9}>No audit events found.</TableCell>
+                    <TableCell colSpan={6}>No audit events found.</TableCell>
                   </TableRow>
                 ) : (
                   events.map((event) => (
                     <TableRow key={event.id}>
-                      <TableCell>{formatDateTime(event.createdAt)}</TableCell>
-                      <TableCell>{event.eventType}</TableCell>
-                      <TableCell>{event.action}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatDateTime(event.createdAt)}</TableCell>
+                      <TableCell>
+                        <div className="font-medium text-gray-900 dark:text-dark-text">{actorLabel(event)}</div>
+                        {event.actorRole && (
+                          <div className="text-xs text-gray-500 dark:text-gray-400">{event.actorRole}</div>
+                        )}
+                      </TableCell>
+                      <TableCell>{summarize(event)}</TableCell>
                       <TableCell>
                         <Badge variant={outcomeVariant(event.outcome)}>{event.outcome}</Badge>
                       </TableCell>
-                      <TableCell>{event.actorRole || '-'} / {event.actorUserId || '-'}</TableCell>
-                      <TableCell>{truncate(event.route, 42)}</TableCell>
                       <TableCell>{event.reference || '-'}</TableCell>
-                      <TableCell>{truncate(event.eventHash, 16)}</TableCell>
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => void openDetails(event.id)}>
                           <Eye size={16} className="mr-1" />
@@ -348,18 +374,26 @@ const Audit: React.FC = () => {
       >
         {selectedEvent ? (
           <div className="space-y-4 text-sm">
+            <div className="rounded-md border border-gray-200 dark:border-dark-border bg-gray-50 dark:bg-gray-800 p-3">
+              <p className="text-base text-gray-900 dark:text-dark-text">
+                <strong>{actorLabel(selectedEvent)}</strong>
+                {selectedEvent.actorRole ? ` (${selectedEvent.actorRole})` : ''} {summarize(selectedEvent).toLowerCase()}
+                {selectedEvent.reference ? ` — ref ${selectedEvent.reference}` : ''}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                {formatDateTime(selectedEvent.createdAt)} · Outcome:{' '}
+                <Badge variant={outcomeVariant(selectedEvent.outcome)}>{selectedEvent.outcome}</Badge>
+              </p>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div><strong>ID:</strong> {selectedEvent.id}</div>
-              <div><strong>Created:</strong> {formatDateTime(selectedEvent.createdAt)}</div>
-              <div><strong>Event Type:</strong> {selectedEvent.eventType}</div>
               <div><strong>Entity:</strong> {selectedEvent.entityType} / {selectedEvent.entityId || '-'}</div>
               <div><strong>Action:</strong> {selectedEvent.action}</div>
-              <div><strong>Outcome:</strong> {selectedEvent.outcome}</div>
-              <div><strong>Method:</strong> {selectedEvent.method || '-'}</div>
-              <div><strong>Route:</strong> {selectedEvent.route || '-'}</div>
+              <div><strong>Event Type:</strong> {selectedEvent.eventType}</div>
+              <div><strong>Method / Route:</strong> {selectedEvent.method || '-'} {selectedEvent.route || ''}</div>
               <div><strong>Request ID:</strong> {selectedEvent.requestId || '-'}</div>
-              <div><strong>Reference:</strong> {selectedEvent.reference || '-'}</div>
-              <div><strong>Actor:</strong> {selectedEvent.actorRole || '-'} / {selectedEvent.actorUserId || '-'}</div>
+              <div><strong>Actor User ID:</strong> {selectedEvent.actorUserId || '-'}</div>
               <div><strong>IP:</strong> {selectedEvent.ipAddress || '-'}</div>
             </div>
 

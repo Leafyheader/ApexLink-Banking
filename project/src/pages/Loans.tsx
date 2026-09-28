@@ -10,7 +10,7 @@ import Modal from '../components/ui/Modal';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Loan, Customer } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
-import api from '../lib/api';
+import api, { settingsApi } from '../lib/api';
 import CustomerAccountSelect from '../components/ui/CustomerAccountSelect';
 
 const Loans: React.FC = () => {
@@ -28,6 +28,7 @@ const Loans: React.FC = () => {
   const [currentLoan, setCurrentLoan] = useState<Loan | null>(null);
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingLoan, setIsCreatingLoan] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Loan statistics state
   const [loanStats, setLoanStats] = useState({
@@ -36,6 +37,7 @@ const Loans: React.FC = () => {
     totalInterestEarned: 0,
   });
   const [isStatsLoading, setIsStatsLoading] = useState(true);
+  const [defaultInterestRate, setDefaultInterestRate] = useState(5);
   // Form state for new/edit loan
   const [formData, setFormData] = useState({
     customerId: '',
@@ -154,6 +156,15 @@ const Loans: React.FC = () => {
     fetchLoanStats();
   }, [fetchLoanStats]);
 
+  useEffect(() => {
+    settingsApi.get()
+      .then((settings) => {
+        setDefaultInterestRate(settings.defaultLoanInterestRate);
+        setFormData((prev) => ({ ...prev, interestRate: settings.defaultLoanInterestRate }));
+      })
+      .catch(() => {});
+  }, []);
+
   // Debounce search query
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -175,7 +186,13 @@ const Loans: React.FC = () => {
     setItemsPerPage(parseInt(value));    setCurrentPage(1);
   };
 
-  const handleCreateLoan = async () => {try {
+  const handleCreateLoan = async () => {
+    // Guard against a double-click (or slow network + a second click) firing two POST /loans
+    // requests - each would create its own loan record and its own guarantor fund reservation
+    // against the same accounts before either is approved.
+    if (isCreatingLoan) return;
+    setIsCreatingLoan(true);
+    try {
       // Validate form
       if (!formData.customerId) {
         alert('Please select a customer');
@@ -218,6 +235,8 @@ const Loans: React.FC = () => {
         interestRate: formData.interestRate,
         term: formData.term,
         repaymentFrequency: formData.repaymentFrequency,
+        // Account that holds the borrower's own 50% backing until the loan is repaid
+        customerAccountId: formData.customerAccountId,
         guarantor1Id: formData.guarantor1Id || undefined,
         guarantor1AccountId: formData.guarantor1AccountId || undefined,
         guarantor1Percentage: formData.guarantor1Percentage || undefined,
@@ -240,6 +259,8 @@ const Loans: React.FC = () => {
       console.error('Error creating loan:', err);
       const errorMessage = (err as { response?: { data?: { error?: string } } }).response?.data?.error || 'Failed to create loan. Please try again.';
       setError(errorMessage);      alert(errorMessage);
+    } finally {
+      setIsCreatingLoan(false);
     }
   };
 
@@ -248,7 +269,7 @@ const Loans: React.FC = () => {
       customerId: '',
       customerAccountId: '',
       amount: 0,
-      interestRate: 5,
+      interestRate: defaultInterestRate,
       term: 12,
       repaymentFrequency: 'MONTHLY',
       guarantor1Id: '',
@@ -354,19 +375,19 @@ const Loans: React.FC = () => {
     }
   };
 
-  // Calculate total payable amount using new loan logic
+  // Calculate total payable amount - must mirror the backend's calculateLoanDetails() exactly,
+  // or this preview will quote the officer a different total than the loan actually created
+  // ends up with. The rate is a flat percentage of principal, independent of term length - a
+  // ₵2000 loan at 10% is always ₵200 interest whether the term is 6, 10, 12, or 24 months.
   const calculateTotalPayable = () => {
     if (!formData.amount) {
       return 0;
     }
 
     const principal = formData.amount;
-    const interestRate = formData.interestRate / 100;
-    
-    // Under new logic: Total payable = Principal + (Principal × Interest Rate)
-    // The interest is collected as a percentage of each payment, but total interest is fixed
-    const totalInterest = principal * interestRate;
-      // Total payable = Principal + Total Interest
+    const rate = formData.interestRate / 100;
+
+    const totalInterest = principal * rate;
     return principal + totalInterest;
   };
 
@@ -382,7 +403,7 @@ const Loans: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Loans</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-dark-text">Loans</h1>
         <div className="flex gap-3">
           <Button
             variant="outline"
@@ -415,7 +436,7 @@ const Loans: React.FC = () => {
           <CardContent>
             <div className="text-2xl font-bold">
               {isStatsLoading ? (
-                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+                <div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-8 w-24 rounded"></div>
               ) : (
                 formatCurrency(loanStats.totalDisbursed, 'GHS', 'en-GH', 2)
               )}
@@ -434,7 +455,7 @@ const Loans: React.FC = () => {
           <CardContent>
             <div className="text-2xl font-bold">
               {isStatsLoading ? (
-                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+                <div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-8 w-24 rounded"></div>
               ) : (
                 formatCurrency(loanStats.totalRepayment, 'GHS', 'en-GH', 2)
               )}
@@ -453,7 +474,7 @@ const Loans: React.FC = () => {
           <CardContent>
             <div className="text-2xl font-bold">
               {isStatsLoading ? (
-                <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+                <div className="animate-pulse bg-gray-200 dark:bg-gray-700 h-8 w-24 rounded"></div>
               ) : (
                 formatCurrency(loanStats.totalInterestEarned, 'GHS', 'en-GH', 2)
               )}
@@ -466,9 +487,9 @@ const Loans: React.FC = () => {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center gap-3">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600" />
-          <span className="text-red-700">{error}</span>
+          <span className="text-red-700 dark:text-red-300">{error}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -480,8 +501,8 @@ const Loans: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg">
-        <div className="p-6 border-b border-gray-200">
+      <div className="bg-white dark:bg-dark-surface shadow rounded-lg dark:border dark:border-dark-border">
+        <div className="p-6 border-b border-gray-200 dark:border-dark-border">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
             <Input
@@ -512,12 +533,12 @@ const Loans: React.FC = () => {
                 <TableRow key={loan.id}>
                   <TableCell>
                     <div>
-                      <div className="font-medium text-gray-900">{loan.customer?.name || loan.customerName}</div>
-                      <div className="text-sm text-gray-500">{loan.account?.accountNumber}</div>
+                      <div className="font-medium text-gray-900 dark:text-dark-text">{loan.customer?.name || loan.customerName}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400">{loan.account?.accountNumber}</div>
                     </div>
                   </TableCell>
                   <TableCell>{loan.account?.accountNumber}</TableCell>
-                  <TableCell className="font-medium">{formatCurrency(loan.amount, 'GHS', 'en-GH', 2)}</TableCell>
+                  <TableCell className="font-medium text-gray-900 dark:text-dark-text">{formatCurrency(loan.amount, 'GHS', 'en-GH', 2)}</TableCell>
                   <TableCell>{loan.interestRate}%</TableCell>
                   <TableCell>{loan.term} months</TableCell>
                   <TableCell>
@@ -528,10 +549,10 @@ const Loans: React.FC = () => {
                   <TableCell>{formatDate(loan.startDate)}</TableCell>
                   <TableCell>
                     <div>
-                      <div className="font-medium text-gray-900">
+                      <div className="font-medium text-gray-900 dark:text-dark-text">
                         {loan.approvedBy?.name || 'System'}
                       </div>
-                      <div className="text-sm text-gray-500">
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
                         {loan.approvedAt ? formatDate(loan.approvedAt) : 'Auto-approved'}
                       </div>
                     </div>
@@ -566,7 +587,7 @@ const Loans: React.FC = () => {
             ) : (
               <TableRow>
                 <TableCell colSpan={9} className="text-center py-8">
-                  <div className="text-gray-500">
+                  <div className="text-gray-500 dark:text-gray-400">
                     {searchQuery ? 'No loans found matching your search.' : 'No loans found.'}
                   </div>
                 </TableCell>
@@ -575,9 +596,9 @@ const Loans: React.FC = () => {
           </TableBody>
         </Table>
         {totalPages > 1 && (
-          <div className="p-6 border-t border-gray-200 flex justify-between items-center">
+          <div className="p-6 border-t border-gray-200 dark:border-dark-border flex justify-between items-center">
             <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-700">
+              <div className="text-sm text-gray-700 dark:text-dark-text">
                 Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalLoans)} to{' '}
                 {Math.min(currentPage * itemsPerPage, totalLoans)} of {totalLoans} loans
               </div>
@@ -657,7 +678,7 @@ const Loans: React.FC = () => {
                 onChange={(e) => setFormData(prev => ({ ...prev, amount: parseFloat(e.target.value) || 0 }))}
                 fullWidth
               />
-              <p className="mt-1 text-sm text-gray-500">Preview: {formatCurrency(formData.amount || 0, 'GHS', 'en-GH', 2)}</p>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Preview: {formatCurrency(formData.amount || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
             <Input
               label="Interest Rate (%)"
@@ -690,28 +711,28 @@ const Loans: React.FC = () => {
 
           {/* Total Payable Summary */}
           {formData.amount > 0 && formData.term > 0 && (
-            <Card className="bg-green-50 border-green-200">
+            <Card className="bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800">
               <CardHeader>
-                <CardTitle className="text-green-800 text-lg">Loan Summary</CardTitle>
+                <CardTitle className="text-green-800 dark:text-green-300 text-lg">Loan Summary</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-4 gap-6">
-                  <div className="text-center p-4 bg-white rounded-lg border border-green-200">
-                    <label className="block text-sm font-medium text-green-700 mb-2">Principal Amount</label>
-                    <p className="text-xl font-bold text-green-900">{formatCurrency(formData.amount, 'GHS', 'en-GH', 2)}</p>
+                  <div className="text-center p-4 bg-white dark:bg-dark-surface rounded-lg border border-green-200 dark:border-green-800">
+                    <label className="block text-sm font-medium text-green-700 dark:text-green-300 mb-2">Principal Amount</label>
+                    <p className="text-xl font-bold text-green-900 dark:text-green-200">{formatCurrency(formData.amount, 'GHS', 'en-GH', 2)}</p>
                   </div>
-                  <div className="text-center p-4 bg-white rounded-lg border border-green-200">
-                    <label className="block text-sm font-medium text-green-700 mb-2">Total Interest</label>
-                    <p className="text-xl font-bold text-green-900">{formatCurrency(totalPayable - formData.amount, 'GHS', 'en-GH', 2)}</p>
+                  <div className="text-center p-4 bg-white dark:bg-dark-surface rounded-lg border border-green-200 dark:border-green-800">
+                    <label className="block text-sm font-medium text-green-700 dark:text-green-300 mb-2">Total Interest</label>
+                    <p className="text-xl font-bold text-green-900 dark:text-green-200">{formatCurrency(totalPayable - formData.amount, 'GHS', 'en-GH', 2)}</p>
                   </div>
-                  <div className="text-center p-4 bg-white rounded-lg border border-green-200">
-                    <label className="block text-sm font-medium text-green-700 mb-2">Total Payable</label>
-                    <p className="text-2xl font-bold text-green-900">{formatCurrency(totalPayable, 'GHS', 'en-GH', 2)}</p>
+                  <div className="text-center p-4 bg-white dark:bg-dark-surface rounded-lg border border-green-200 dark:border-green-800">
+                    <label className="block text-sm font-medium text-green-700 dark:text-green-300 mb-2">Total Payable</label>
+                    <p className="text-2xl font-bold text-green-900 dark:text-green-200">{formatCurrency(totalPayable, 'GHS', 'en-GH', 2)}</p>
                   </div>
                   {formData.term > 0 && (
-                    <div className="text-center p-4 bg-white rounded-lg border border-green-200">
-                      <label className="block text-sm font-medium text-green-700 mb-2">Monthly Payment</label>
-                      <p className="text-lg font-semibold text-green-800">
+                    <div className="text-center p-4 bg-white dark:bg-dark-surface rounded-lg border border-green-200 dark:border-green-800">
+                      <label className="block text-sm font-medium text-green-700 dark:text-green-300 mb-2">Monthly Payment</label>
+                      <p className="text-lg font-semibold text-green-800 dark:text-green-300">
                         {formatCurrency(totalPayable / formData.term, 'GHS', 'en-GH', 2)}
                       </p>
                     </div>                  )}
@@ -743,7 +764,7 @@ const Loans: React.FC = () => {
                       guarantor1AccountId: selection.accountId || ''
                     }));
                   }}
-                  excludeCustomerIds={[formData.customerId]}
+                  excludeCustomerIds={[formData.guarantor2Id, formData.guarantor3Id].filter(Boolean)}
                   placeholder="Select guarantor customer..."
                   showAccountSelection={true}
                   fullWidth
@@ -755,7 +776,7 @@ const Loans: React.FC = () => {
                     label="Percentage"
                     value={formData.guarantor1Percentage.toString()}
                     onChange={(value) => setFormData(prev => ({ ...prev, guarantor1Percentage: parseInt(value) || 0 }))}
-                    options={Array.from({ length: 100 }, (_, i) => ({ value: (i + 1).toString(), label: `${i + 1}%` }))}
+                    options={Array.from({ length: 51 }, (_, i) => ({ value: i.toString(), label: `${i}%` }))}
                     fullWidth
                   />
                 </div>
@@ -784,7 +805,7 @@ const Loans: React.FC = () => {
                       guarantor2AccountId: selection.accountId || ''
                     }));
                   }}
-                  excludeCustomerIds={[formData.customerId, formData.guarantor1Id].filter(Boolean)}
+                  excludeCustomerIds={[formData.guarantor1Id, formData.guarantor3Id].filter(Boolean)}
                   placeholder="Select guarantor customer..."
                   showAccountSelection={true}
                   fullWidth
@@ -796,7 +817,7 @@ const Loans: React.FC = () => {
                     label="Percentage"
                     value={formData.guarantor2Percentage.toString()}
                     onChange={(value) => setFormData(prev => ({ ...prev, guarantor2Percentage: parseInt(value) || 0 }))}
-                    options={Array.from({ length: 100 }, (_, i) => ({ value: (i + 1).toString(), label: `${i + 1}%` }))}
+                    options={Array.from({ length: 51 }, (_, i) => ({ value: i.toString(), label: `${i}%` }))}
                     fullWidth
                   />
                 </div>
@@ -825,7 +846,7 @@ const Loans: React.FC = () => {
                       guarantor3AccountId: selection.accountId || ''
                     }));
                   }}
-                  excludeCustomerIds={[formData.customerId, formData.guarantor1Id, formData.guarantor2Id].filter(Boolean)}
+                  excludeCustomerIds={[formData.guarantor1Id, formData.guarantor2Id].filter(Boolean)}
                   placeholder="Select guarantor customer..."
                   showAccountSelection={true}
                   fullWidth
@@ -837,7 +858,7 @@ const Loans: React.FC = () => {
                     label="Percentage"
                     value={formData.guarantor3Percentage.toString()}
                     onChange={(value) => setFormData(prev => ({ ...prev, guarantor3Percentage: parseInt(value) || 0 }))}
-                    options={Array.from({ length: 100 }, (_, i) => ({ value: (i + 1).toString(), label: `${i + 1}%` }))}
+                    options={Array.from({ length: 51 }, (_, i) => ({ value: i.toString(), label: `${i}%` }))}
                     fullWidth
                   />
                 </div>
@@ -846,9 +867,9 @@ const Loans: React.FC = () => {
           </div>
 
           {/* Percentage Summary */}
-          <div className="bg-blue-50 p-4 rounded-lg">
+          <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
             <div className="flex justify-between items-center">
-              <span className="text-sm font-medium text-blue-800">Total Percentage:</span>
+              <span className="text-sm font-medium text-blue-800 dark:text-blue-300">Total Percentage:</span>
               <span className={`text-sm font-bold ${
                 formData.guarantor1Percentage + formData.guarantor2Percentage + formData.guarantor3Percentage === 50
                   ? 'text-green-600'
@@ -858,8 +879,13 @@ const Loans: React.FC = () => {
               </span>
             </div>
             {formData.guarantor1Percentage + formData.guarantor2Percentage + formData.guarantor3Percentage !== 50 && (
-              <p className="text-xs text-red-600 mt-1">Guarantor percentages must total 50%</p>
+              <p className="text-xs text-red-600 dark:text-red-400 mt-1">Guarantor percentages must total 50%</p>
             )}
+            <p className="text-xs text-blue-700 dark:text-blue-300 mt-2">
+              The borrower's selected account holds 50% of the loan as their own backing until the loan is fully repaid.
+              The borrower may also be picked as one of the guarantors (self-guarantee) - their account must then have
+              enough available for both the backing and the guaranteed share.
+            </p>
           </div>
 
           <div className="flex justify-end gap-3">
@@ -869,10 +895,11 @@ const Loans: React.FC = () => {
                 setIsAddModalOpen(false);
                 resetForm();
               }}
+              disabled={isCreatingLoan}
             >
               Cancel
             </Button>
-            <Button onClick={handleCreateLoan}>
+            <Button onClick={handleCreateLoan} isLoading={isCreatingLoan} disabled={isCreatingLoan}>
               Create Loan
             </Button>
           </div>
@@ -901,20 +928,20 @@ const Loans: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Customer Name</label>
-                    <p className="text-gray-900">{selectedLoan.customer?.name || selectedLoan.customerName || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Customer Name</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.customer?.name || selectedLoan.customerName || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                    <p className="text-gray-900">{selectedLoan.customer?.phone || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Phone</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.customer?.phone || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <p className="text-gray-900">{selectedLoan.customer?.email || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Email</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.customer?.email || 'N/A'}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
-                    <p className="text-gray-900 font-mono">{selectedLoan.account?.accountNumber || 'N/A'}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Account Number</label>
+                    <p className="text-gray-900 dark:text-dark-text font-mono">{selectedLoan.account?.accountNumber || 'N/A'}</p>
                   </div>
                 </div>
               </CardContent>
@@ -931,44 +958,44 @@ const Loans: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Loan Amount</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Loan Amount</label>
                     <p className="text-lg font-semibold text-green-600">{formatCurrency(selectedLoan.amount, 'GHS', 'en-GH', 2)}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Interest Rate</label>
-                    <p className="text-gray-900">{selectedLoan.interestRate}%</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Interest Rate</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.interestRate}%</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Term</label>
-                    <p className="text-gray-900">{selectedLoan.term} months</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Term</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.term} months</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Repayment Frequency</label>
-                    <p className="text-gray-900">{selectedLoan.repaymentFrequency}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Repayment Frequency</label>
+                    <p className="text-gray-900 dark:text-dark-text">{selectedLoan.repaymentFrequency}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Status</label>
                     <Badge variant={getStatusBadgeVariant(selectedLoan.status)}>
                       {selectedLoan.status ? selectedLoan.status.charAt(0).toUpperCase() + selectedLoan.status.slice(1).toLowerCase() : 'Unknown'}
                     </Badge>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Monthly Payment</label>
-                    <p className="text-gray-900">{formatCurrency(selectedLoan.monthlyPayment || 0, 'GHS', 'en-GH', 2)}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Monthly Payment</label>
+                    <p className="text-gray-900 dark:text-dark-text">{formatCurrency(selectedLoan.monthlyPayment || 0, 'GHS', 'en-GH', 2)}</p>
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t">
+                <div className="grid grid-cols-3 gap-4 mt-4 pt-4 border-t dark:border-dark-border">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Total Payable</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Total Payable</label>
                     <p className="text-lg font-semibold text-blue-600">{formatCurrency(selectedLoan.totalPayable || 0, 'GHS', 'en-GH', 2)}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Amount Paid</label>
-                    <p className="text-gray-900">{formatCurrency(selectedLoan.amountPaid || 0, 'GHS', 'en-GH', 2)}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Amount Paid</label>
+                    <p className="text-gray-900 dark:text-dark-text">{formatCurrency(selectedLoan.amountPaid || 0, 'GHS', 'en-GH', 2)}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Outstanding Balance</label>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Outstanding Balance</label>
                     <p className={`text-lg font-semibold ${selectedLoan.status === 'PAID' ? 'text-green-600' : 'text-red-600'}`}>
                       {formatCurrency(selectedLoan.outstandingBalance || 0, 'GHS', 'en-GH', 2)}
                     </p>
@@ -978,14 +1005,14 @@ const Loans: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t">
+                <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t dark:border-dark-border">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                    <p className="text-gray-900">{formatDate(selectedLoan.startDate)}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Start Date</label>
+                    <p className="text-gray-900 dark:text-dark-text">{formatDate(selectedLoan.startDate)}</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                    <p className="text-gray-900">{formatDate(selectedLoan.endDate)}</p>
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">End Date</label>
+                    <p className="text-gray-900 dark:text-dark-text">{formatDate(selectedLoan.endDate)}</p>
                   </div>
                 </div>
               </CardContent>
@@ -1002,14 +1029,14 @@ const Loans: React.FC = () => {
               <CardContent>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Approved By</label>
-                    <p className="text-gray-900">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Approved By</label>
+                    <p className="text-gray-900 dark:text-dark-text">
                       {selectedLoan.approvedBy ? `${selectedLoan.approvedBy.name} (${selectedLoan.approvedBy.username})` : 'System'}
                     </p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Approved At</label>
-                    <p className="text-gray-900">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Approved At</label>
+                    <p className="text-gray-900 dark:text-dark-text">
                       {selectedLoan.approvedAt ? formatDate(selectedLoan.approvedAt) : 'Auto-approved'}
                     </p>
                   </div>
@@ -1031,71 +1058,71 @@ const Loans: React.FC = () => {
                   {selectedLoan.guarantorDetails && selectedLoan.guarantorDetails.length > 0 ? (
                     <div className="space-y-6">
                       {selectedLoan.guarantorDetails.map((guarantor, index) => (
-                        <div key={guarantor.id} className="border rounded-lg p-6 bg-gray-50">
+                        <div key={guarantor.id} className="border dark:border-dark-border rounded-lg p-6 bg-gray-50 dark:bg-gray-800">
                           <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-lg font-semibold text-gray-900">
+                            <h4 className="text-lg font-semibold text-gray-900 dark:text-dark-text">
                               Guarantor {index + 1}
                             </h4>
                             <Badge variant={guarantor.status === 'ACTIVE' ? 'success' : guarantor.status === 'RELEASED' ? 'secondary' : 'danger'}>
                               {guarantor.status}
                             </Badge>
                           </div>
-                          
+
                           {/* Personal Information */}
                           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                              <p className="text-gray-900 font-medium">{guarantor.name}</p>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Name</label>
+                              <p className="text-gray-900 dark:text-dark-text font-medium">{guarantor.name}</p>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                              <p className="text-gray-900">{guarantor.phone || 'N/A'}</p>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Phone</label>
+                              <p className="text-gray-900 dark:text-dark-text">{guarantor.phone || 'N/A'}</p>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                              <p className="text-gray-900">{guarantor.email || 'N/A'}</p>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Email</label>
+                              <p className="text-gray-900 dark:text-dark-text">{guarantor.email || 'N/A'}</p>
                             </div>
                             <div>
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Guaranteed Date</label>
-                              <p className="text-gray-900">{formatDate(guarantor.createdAt)}</p>
+                              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Guaranteed Date</label>
+                              <p className="text-gray-900 dark:text-dark-text">{formatDate(guarantor.createdAt)}</p>
                             </div>
                           </div>
 
                           {/* Account Information */}
-                          <div className="border-t pt-4">
-                            <h5 className="font-medium text-gray-900 mb-3">Guarantor Account Details</h5>
+                          <div className="border-t dark:border-dark-border pt-4">
+                            <h5 className="font-medium text-gray-900 dark:text-dark-text mb-3">Guarantor Account Details</h5>
                             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Number</label>
-                                <p className="text-gray-900 font-mono">{guarantor.account.accountNumber}</p>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Account Number</label>
+                                <p className="text-gray-900 dark:text-dark-text font-mono">{guarantor.account.accountNumber}</p>
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
-                                <p className="text-gray-900">{guarantor.account.type}</p>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Account Type</label>
+                                <p className="text-gray-900 dark:text-dark-text">{guarantor.account.type}</p>
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Account Balance</label>
-                                <p className="text-gray-900">{formatCurrency(guarantor.account.balance, 'GHS', 'en-GH', 2)}</p>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Account Balance</label>
+                                <p className="text-gray-900 dark:text-dark-text">{formatCurrency(guarantor.account.balance, 'GHS', 'en-GH', 2)}</p>
                               </div>
                               {guarantor.account.shareBalance > 0 && (
                                 <div>
-                                  <label className="block text-sm font-medium text-gray-700 mb-1">Share Balance</label>
-                                  <p className="text-gray-900">{formatCurrency(guarantor.account.shareBalance, 'GHS', 'en-GH', 2)}</p>
+                                  <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Share Balance</label>
+                                  <p className="text-gray-900 dark:text-dark-text">{formatCurrency(guarantor.account.shareBalance, 'GHS', 'en-GH', 2)}</p>
                                 </div>
                               )}
                             </div>
                           </div>
 
                           {/* Guarantee Amount */}
-                          <div className="border-t pt-4 mt-4">
-                            <h5 className="font-medium text-gray-900 mb-3">Guarantee Details</h5>
+                          <div className="border-t dark:border-dark-border pt-4 mt-4">
+                            <h5 className="font-medium text-gray-900 dark:text-dark-text mb-3">Guarantee Details</h5>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Guaranteed Amount</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Guaranteed Amount</label>
                                 <p className="text-xl font-bold text-blue-600">{formatCurrency(guarantor.guaranteedAmount, 'GHS', 'en-GH', 2)}</p>
                               </div>
                               <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Percentage of Loan</label>
+                                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Percentage of Loan</label>
                                 <p className="text-lg font-semibold text-green-600">
                                   {((guarantor.guaranteedAmount / selectedLoan.amount) * 100).toFixed(1)}%
                                 </p>
@@ -1105,21 +1132,21 @@ const Loans: React.FC = () => {
 
                           {/* Address if available */}
                           {guarantor.address && (
-                            <div className="border-t pt-4 mt-4">
-                              <label className="block text-sm font-medium text-gray-700 mb-1">Address</label>
-                              <p className="text-gray-900">{guarantor.address}</p>
+                            <div className="border-t dark:border-dark-border pt-4 mt-4">
+                              <label className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">Address</label>
+                              <p className="text-gray-900 dark:text-dark-text">{guarantor.address}</p>
                             </div>
                           )}
                         </div>
                       ))}
 
                       {/* Total Guarantee Summary */}
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <h5 className="font-medium text-blue-900 mb-3">Guarantee Summary</h5>
+                      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                        <h5 className="font-medium text-blue-900 dark:text-blue-300 mb-3">Guarantee Summary</h5>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
-                            <label className="block text-sm font-medium text-blue-700 mb-1">Total Guaranteed</label>
-                            <p className="text-lg font-bold text-blue-900">
+                            <label className="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Total Guaranteed</label>
+                            <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
                               {formatCurrency(
                                 selectedLoan.guarantorDetails.reduce((sum, g) => sum + g.guaranteedAmount, 0),
                                 'GHS', 'en-GH', 2
@@ -1127,14 +1154,14 @@ const Loans: React.FC = () => {
                             </p>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-blue-700 mb-1">Total Percentage</label>
-                            <p className="text-lg font-bold text-blue-900">
+                            <label className="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Total Percentage</label>
+                            <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
                               {selectedLoan.guarantorDetails.reduce((sum, g) => sum + ((g.guaranteedAmount / selectedLoan.amount) * 100), 0).toFixed(1)}%
                             </p>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-blue-700 mb-1">Active Guarantors</label>
-                            <p className="text-lg font-bold text-blue-900">
+                            <label className="block text-sm font-medium text-blue-700 dark:text-blue-300 mb-1">Active Guarantors</label>
+                            <p className="text-lg font-bold text-blue-900 dark:text-blue-200">
                               {selectedLoan.guarantorDetails.filter(g => g.status === 'ACTIVE').length} of {selectedLoan.guarantorDetails.length}
                             </p>
                           </div>
@@ -1145,27 +1172,27 @@ const Loans: React.FC = () => {
                     /* Fallback to legacy guarantor display */
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       {selectedLoan.guarantor1 && (
-                        <div className="p-4 border rounded-lg">
-                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 1</h4>
-                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor1.name}</p>
-                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor1.phone || 'N/A'}</p>
-                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor1Percentage || 0}%</p>
+                        <div className="p-4 border dark:border-dark-border rounded-lg">
+                          <h4 className="font-medium text-gray-900 dark:text-dark-text mb-2">Guarantor 1</h4>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Name: {selectedLoan.guarantor1.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Phone: {selectedLoan.guarantor1.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Percentage: {selectedLoan.guarantor1Percentage || 0}%</p>
                         </div>
                       )}
                       {selectedLoan.guarantor2 && (
-                        <div className="p-4 border rounded-lg">
-                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 2</h4>
-                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor2.name}</p>
-                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor2.phone || 'N/A'}</p>
-                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor2Percentage || 0}%</p>
+                        <div className="p-4 border dark:border-dark-border rounded-lg">
+                          <h4 className="font-medium text-gray-900 dark:text-dark-text mb-2">Guarantor 2</h4>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Name: {selectedLoan.guarantor2.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Phone: {selectedLoan.guarantor2.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Percentage: {selectedLoan.guarantor2Percentage || 0}%</p>
                         </div>
                       )}
                       {selectedLoan.guarantor3 && (
-                        <div className="p-4 border rounded-lg">
-                          <h4 className="font-medium text-gray-900 mb-2">Guarantor 3</h4>
-                          <p className="text-sm text-gray-600">Name: {selectedLoan.guarantor3.name}</p>
-                          <p className="text-sm text-gray-600">Phone: {selectedLoan.guarantor3.phone || 'N/A'}</p>
-                          <p className="text-sm text-gray-600">Percentage: {selectedLoan.guarantor3Percentage || 0}%</p>
+                        <div className="p-4 border dark:border-dark-border rounded-lg">
+                          <h4 className="font-medium text-gray-900 dark:text-dark-text mb-2">Guarantor 3</h4>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Name: {selectedLoan.guarantor3.name}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Phone: {selectedLoan.guarantor3.phone || 'N/A'}</p>
+                          <p className="text-sm text-gray-600 dark:text-gray-300">Percentage: {selectedLoan.guarantor3Percentage || 0}%</p>
                         </div>
                       )}
                     </div>
@@ -1209,7 +1236,7 @@ const Loans: React.FC = () => {
         title="Delete Loan"
       >
         <div className="p-6">
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-dark-text mb-4">
             Are you sure you want to delete this loan? This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3">

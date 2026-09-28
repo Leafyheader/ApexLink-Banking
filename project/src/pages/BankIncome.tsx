@@ -61,7 +61,6 @@ const BankIncome: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedPeriod, setSelectedPeriod] = useState('month');
-  const [isCalculatingInterest, setIsCalculatingInterest] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
 
@@ -84,22 +83,8 @@ const BankIncome: React.FC = () => {
     }
   }, [selectedPeriod, currentPage, itemsPerPage]);
 
-  const calculateDailyInterest = async () => {
-    try {
-      setIsCalculatingInterest(true);
-      const response = await api.post('/bank-income/calculate-daily-interest');
-      
-  // Show success message
-  alert(`Interest calculated successfully! Created ${response.data.recordsCreated} records for total income of ${formatCurrency(response.data.totalInterestIncome, 'GHS', 'en-GH', 2)}`);
-      
-      // Refresh the data
-      await fetchIncomeData();
-    } catch (err) {
-      console.error('Error calculating daily interest:', err);
-      alert('Failed to calculate daily interest. Please try again.');
-    } finally {
-      setIsCalculatingInterest(false);
-    }  };
+  // Loan interest is booked automatically when repayments are received - there is no manual
+  // "calculate interest" step (it used to book the same interest a second time).
 
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
@@ -193,15 +178,6 @@ const BankIncome: React.FC = () => {
             leftIcon={<RefreshCw size={16} />}
           >
             Refresh
-          </Button>
-          <Button
-            variant="primary"
-            onClick={calculateDailyInterest}
-            disabled={isCalculatingInterest}
-            isLoading={isCalculatingInterest}
-            leftIcon={<TrendingUp size={16} />}
-          >
-            Calculate Interest
           </Button>
         </div>
       </div>

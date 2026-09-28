@@ -142,9 +142,11 @@ const CreateUser: React.FC = () => {
       }, 2000);
         } catch (err: unknown) {
       console.error('Failed to create user:', err);
-      const errorMessage = err instanceof Error 
-        ? err.message 
-        : 'Failed to create user';
+      // AxiosError is itself `instanceof Error`, so checking that first always won the ternary
+      // and surfaced Axios's generic "Request failed with status code 400" instead of the
+      // backend's actual message (e.g. "Username already exists") - check the response body first.
+      const errorMessage = (err as { response?: { data?: { message?: string } } }).response?.data?.message
+        || (err instanceof Error ? err.message : 'Failed to create user');
       setError(errorMessage);
     } finally {
       setIsLoading(false);
@@ -164,8 +166,8 @@ const CreateUser: React.FC = () => {
           Back to Users
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Create New User</h1>
-          <p className="text-muted-foreground">
+          <h1 className="text-3xl font-bold tracking-tight text-gray-900 dark:text-dark-text">Create New User</h1>
+          <p className="text-muted-foreground dark:text-gray-300">
             Add a new user to the banking system
           </p>
         </div>
@@ -173,13 +175,13 @@ const CreateUser: React.FC = () => {
 
       {/* Success Message */}
       {success && (
-        <Card className="border-green-200 bg-green-50">
+        <Card className="border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <CheckCircle className="h-5 w-5 text-green-600" />
               <div>
-                <p className="text-green-800 font-medium">User Created Successfully</p>
-                <p className="text-green-600 text-sm">{success}</p>
+                <p className="text-green-800 dark:text-green-300 font-medium">User Created Successfully</p>
+                <p className="text-green-600 dark:text-green-400 text-sm">{success}</p>
               </div>
             </div>
           </CardContent>
@@ -188,13 +190,13 @@ const CreateUser: React.FC = () => {
 
       {/* Error Message */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
           <CardContent className="pt-6">
             <div className="flex items-center space-x-2">
               <AlertCircle className="h-5 w-5 text-red-600" />
               <div>
-                <p className="text-red-800 font-medium">Error Creating User</p>
-                <p className="text-red-600 text-sm">{error}</p>
+                <p className="text-red-800 dark:text-red-300 font-medium">Error Creating User</p>
+                <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>
               </div>
             </div>
           </CardContent>
@@ -216,7 +218,7 @@ const CreateUser: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Name Field */}
             <div className="space-y-2">
-              <label htmlFor="name" className="text-sm font-medium">
+              <label htmlFor="name" className="text-sm font-medium dark:text-dark-text">
                 Full Name *
               </label>
               <Input
@@ -235,7 +237,7 @@ const CreateUser: React.FC = () => {
 
             {/* Username Field */}
             <div className="space-y-2">
-              <label htmlFor="username" className="text-sm font-medium">
+              <label htmlFor="username" className="text-sm font-medium dark:text-dark-text">
                 Username *
               </label>
               <Input
@@ -250,14 +252,14 @@ const CreateUser: React.FC = () => {
               {fieldErrors.username && (
                 <p className="text-sm text-red-600">{fieldErrors.username}</p>
               )}
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 Username must be at least 3 characters long
               </p>
             </div>
 
             {/* Role Field */}
             <div className="space-y-2">
-              <label htmlFor="role" className="text-sm font-medium">
+              <label htmlFor="role" className="text-sm font-medium dark:text-dark-text">
                 Role *
               </label>              <Select
                 options={roleOptions}
@@ -268,7 +270,7 @@ const CreateUser: React.FC = () => {
               {fieldErrors.role && (
                 <p className="text-sm text-red-600">{fieldErrors.role}</p>
               )}
-              <div className="text-xs text-gray-500 space-y-1">
+              <div className="text-xs text-gray-500 dark:text-gray-400 space-y-1">
                 <p><strong>Administrator:</strong> Full system access</p>
                 <p><strong>Manager:</strong> Manage users and approve transactions</p>
                 <p><strong>Teller:</strong> Process customer transactions</p>
@@ -277,7 +279,7 @@ const CreateUser: React.FC = () => {
 
             {/* Password Field */}
             <div className="space-y-2">
-              <label htmlFor="password" className="text-sm font-medium">
+              <label htmlFor="password" className="text-sm font-medium dark:text-dark-text">
                 Password *
               </label>
               <div className="relative">
@@ -293,7 +295,7 @@ const CreateUser: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -301,14 +303,14 @@ const CreateUser: React.FC = () => {
               {fieldErrors.password && (
                 <p className="text-sm text-red-600">{fieldErrors.password}</p>
               )}
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-500 dark:text-gray-400">
                 Password must be at least 6 characters long
               </p>
             </div>
 
             {/* Confirm Password Field */}
             <div className="space-y-2">
-              <label htmlFor="confirmPassword" className="text-sm font-medium">
+              <label htmlFor="confirmPassword" className="text-sm font-medium dark:text-dark-text">
                 Confirm Password *
               </label>
               <div className="relative">
@@ -324,7 +326,7 @@ const CreateUser: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
                 >
                   {showConfirmPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>

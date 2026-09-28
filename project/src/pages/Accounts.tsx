@@ -102,7 +102,6 @@ const Accounts: React.FC = () => {
       setAccounts(response.data.accounts);
       setTotalItems(response.data.pagination.total);
       setTotalPages(response.data.pagination.totalPages);
-      generateNextAccountNumber(response.data.accounts);
     } catch (err) {
       console.error('Error fetching accounts:', err);
       setError('Failed to load accounts. Please try again.');
@@ -173,17 +172,21 @@ const Accounts: React.FC = () => {
     };
   }, [customerDropdownOpen]);
 
-  const generateNextAccountNumber = (existingAccounts: Account[]) => {
-    const accountNumbers = existingAccounts
-      .map(acc => acc.accountNumber)
-      .filter(num => num.startsWith('ACC'))
-      .map(num => parseInt(num.replace('ACC', ''), 10))
-      .filter(num => !isNaN(num));
-    
-    const maxNumber = accountNumbers.length > 0 ? Math.max(...accountNumbers) : 0;
-    const nextNumber = maxNumber + 1;
-    setNextAccountNumber(`ACC${nextNumber.toString().padStart(7, '0')}`);
-  };
+  // Sourced from the backend, which checks the true highest account number across the whole
+  // table - the accounts loaded here are just the current (paginated/filtered) page, so
+  // computing this from local state would frequently suggest an already-taken number.
+  const fetchNextAccountNumber = useCallback(async () => {
+    try {
+      const response = await api.get('/accounts/next-number');
+      setNextAccountNumber(response.data.nextAccountNumber);
+    } catch (err) {
+      console.error('Error fetching next account number:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchNextAccountNumber();
+  }, [fetchNextAccountNumber]);
 
   useEffect(() => {
     if (!isAccountNumberEditable) {
@@ -193,6 +196,10 @@ const Accounts: React.FC = () => {
 
   const normalizeHeader = (header: string): string =>
     header.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // Trims/collapses whitespace and lowercases, so "Theresa   Abla" and "theresa abla" match.
+  const normalizeName = (name: string): string =>
+    name.trim().toLowerCase().replace(/\s+/g, ' ');
 
   const parseAmount = (value: string): number => {
     const cleaned = String(value || '').replace(/[^0-9.-]/g, '');
@@ -298,16 +305,45 @@ const Accounts: React.FC = () => {
       const savingsBalanceIndex = headers.findIndex((h) => ['savingsbalance', 'balance', 'savings'].includes(h));
       const sharesBalanceIndex = headers.findIndex((h) => ['sharesbalance', 'sharebalance', 'shares'].includes(h));
 
-      if (customerIdIndex === -1 || accountNameIndex === -1 || accountNumberIndex === -1 || savingsBalanceIndex === -1 || sharesBalanceIndex === -1) {
-        setError('Required columns missing. Include customer id, account name, account number, savings balance, and shares balance headers.');
+      // Customer ID is optional: when it's missing (column absent, or blank on a given row),
+      // we fall back to matching Account Name against existing customers by exact name.
+      if (accountNameIndex === -1 || accountNumberIndex === -1 || savingsBalanceIndex === -1 || sharesBalanceIndex === -1) {
+        setError('Required columns missing. Include account name, account number, savings balance, and shares balance headers. Customer ID is optional — if omitted, accounts are matched to existing customers by name.');
         return;
       }
 
+      // Build a name -> customer(s) lookup for rows without a Customer ID.
+      // The customers endpoint excludes hidden customers by default, so duplicate
+      // customer records that were already marked hidden (e.g. via "Hide Without
+      // Accounts") are naturally excluded from matching here.
+      const nameMatchIndex = new Map<string, { id: string; name: string }[]>();
+      if (customerIdIndex === -1 || rows.some((row) => !(row[customerIdIndex] || '').trim())) {
+        const customerLookupResponse = await api.get('/customers?limit=100000');
+        const allCustomers: { id: string; name: string }[] = customerLookupResponse.data.customers || [];
+        for (const c of allCustomers) {
+          const key = normalizeName(c.name);
+          if (!nameMatchIndex.has(key)) nameMatchIndex.set(key, []);
+          nameMatchIndex.get(key)!.push(c);
+        }
+      }
+
+      // Build an accountNumber -> account lookup so rows referencing an account that already
+      // exists update its balance instead of failing on a duplicate-account-number error.
+      const accountLookupResponse = await api.get('/accounts?limit=100000');
+      const allAccounts: { id: string; accountNumber: string; type: string }[] = accountLookupResponse.data.accounts || [];
+      const accountIndex = new Map<string, { id: string; accountNumber: string; type: string }>();
+      for (const a of allAccounts) {
+        accountIndex.set(a.accountNumber.trim().toUpperCase(), a);
+      }
+
       let created = 0;
+      let updated = 0;
       let invalid = 0;
       let skippedEmptyName = 0;
       let skippedNotFoundMarker = 0;
+      let skippedLoanAccount = 0;
       let failedCreate = 0;
+      let matchedByName = 0;
       const rowErrors: string[] = [];
       const failedRows: FailedImportRow[] = [];
 
@@ -321,37 +357,54 @@ const Accounts: React.FC = () => {
           continue;
         }
 
-        const customerIdRaw = (row[customerIdIndex] || '').trim();
+        const customerIdRaw = customerIdIndex === -1 ? '' : (row[customerIdIndex] || '').trim();
         const accountNameRaw = (row[accountNameIndex] || '').trim();
         if (!accountNameRaw) {
           skippedEmptyName++;
           continue;
         }
 
-        if (!customerIdRaw) {
-          invalid++;
-          const msg = 'missing customer id';
-          rowErrors.push(`Row ${rowNumber}: ${msg}`);
-          failedRows.push({
-            rowNumber,
-            customerId: customerIdRaw,
-            accountName: accountNameRaw,
-            accountNumber: String(row[accountNumberIndex] || '').trim(),
-            savingsBalance: String(row[savingsBalanceIndex] || ''),
-            sharesBalance: String(row[sharesBalanceIndex] || ''),
-            error: msg,
-          });
-          continue;
+        let resolvedCustomerId = customerIdRaw;
+
+        if (!resolvedCustomerId) {
+          const matches = nameMatchIndex.get(normalizeName(accountNameRaw)) || [];
+          if (matches.length === 1) {
+            resolvedCustomerId = matches[0].id;
+            matchedByName++;
+          } else {
+            invalid++;
+            const msg = matches.length === 0
+              ? `no customer found named "${accountNameRaw}"`
+              : `${matches.length} customers named "${accountNameRaw}" found — add a Customer ID to disambiguate`;
+            rowErrors.push(`Row ${rowNumber}: ${msg}`);
+            failedRows.push({
+              rowNumber,
+              customerId: '',
+              accountName: accountNameRaw,
+              accountNumber: String(row[accountNumberIndex] || '').trim(),
+              savingsBalance: String(row[savingsBalanceIndex] || ''),
+              sharesBalance: String(row[sharesBalanceIndex] || ''),
+              error: msg,
+            });
+            continue;
+          }
         }
 
-        const accountNumberRaw = String(row[accountNumberIndex] || '');
-        if (!accountNumberRaw.trim()) {
+        let accountNumberRaw = String(row[accountNumberIndex] || '').trim();
+        // Some export formats (e.g. later re-exports of this scheme's data) put the bare
+        // sequence number in the Account Number column instead of the real ACC0000001-style
+        // identifier - normalize it to that format so it lines up with existing accounts
+        // instead of trying to create new ones numbered "1", "2", etc.
+        if (/^\d+$/.test(accountNumberRaw)) {
+          accountNumberRaw = `ACC${accountNumberRaw.padStart(7, '0')}`;
+        }
+        if (!accountNumberRaw) {
           invalid++;
           const msg = 'missing account number';
           rowErrors.push(`Row ${rowNumber}: ${msg}`);
           failedRows.push({
             rowNumber,
-            customerId: customerIdRaw,
+            customerId: resolvedCustomerId,
             accountName: accountNameRaw,
             accountNumber: accountNumberRaw,
             savingsBalance: String(row[savingsBalanceIndex] || ''),
@@ -364,24 +417,55 @@ const Accounts: React.FC = () => {
         const savingsBalance = parseAmount(row[savingsBalanceIndex] || '0');
         const sharesBalance = parseAmount(row[sharesBalanceIndex] || '0');
 
-        try {
-          await api.post('/accounts', {
-            customerId: customerIdRaw,
-            type: 'SAVINGS',
+        const existingAccount = accountIndex.get(accountNumberRaw.trim().toUpperCase());
+
+        // Loan account balances are driven by the loan repayment engine, not a raw balance
+        // figure - never let a bulk import overwrite them.
+        if (existingAccount && existingAccount.type === 'LOAN') {
+          skippedLoanAccount++;
+          const msg = 'account is a loan account - balance updates via import are not allowed';
+          rowErrors.push(`Row ${rowNumber}: ${msg}`);
+          failedRows.push({
+            rowNumber,
+            customerId: resolvedCustomerId,
+            accountName: accountNameRaw,
             accountNumber: accountNumberRaw,
-            balance: savingsBalance,
-            shareBalance: sharesBalance,
-            sharesAvailableBalance: sharesBalance,
-            minimumBalance: 0,
+            savingsBalance: String(row[savingsBalanceIndex] || ''),
+            sharesBalance: String(row[sharesBalanceIndex] || ''),
+            error: msg,
           });
-          created++;
+          continue;
+        }
+
+        try {
+          if (existingAccount) {
+            await api.put(`/accounts/${existingAccount.id}`, {
+              balance: savingsBalance,
+              shareBalance: sharesBalance,
+              sharesAvailableBalance: sharesBalance,
+            });
+            updated++;
+          } else {
+            await api.post('/accounts', {
+              customerId: resolvedCustomerId,
+              type: 'SAVINGS',
+              accountNumber: accountNumberRaw,
+              balance: savingsBalance,
+              shareBalance: sharesBalance,
+              sharesAvailableBalance: sharesBalance,
+              minimumBalance: 0,
+              // Balances from the owners' books, not cash received today
+              openingBalanceSource: 'import',
+            });
+            created++;
+          }
         } catch (createErr: unknown) {
           failedCreate++;
           const errorObj = createErr as { response?: { data?: unknown }; message?: string };
           const backendError = errorObj?.response?.data as { message?: string; errors?: Array<{ msg?: string }> } | undefined;
-          console.error(`Import create failed at row ${rowNumber}`, {
+          console.error(`Import ${existingAccount ? 'update' : 'create'} failed at row ${rowNumber}`, {
             rowNumber,
-            customerId: customerIdRaw,
+            customerId: resolvedCustomerId,
             accountName: accountNameRaw,
             accountNumber: accountNumberRaw,
             savingsBalance,
@@ -393,7 +477,7 @@ const Accounts: React.FC = () => {
           rowErrors.push(`Row ${rowNumber}: ${message}`);
           failedRows.push({
             rowNumber,
-            customerId: customerIdRaw,
+            customerId: resolvedCustomerId,
             accountName: accountNameRaw,
             accountNumber: accountNumberRaw,
             savingsBalance: String(row[savingsBalanceIndex] || ''),
@@ -405,7 +489,7 @@ const Accounts: React.FC = () => {
 
       await fetchAccounts();
 
-      const summary = `Import completed. Created: ${created}, Skipped NOT FOUND Marker: ${skippedNotFoundMarker}, Skipped Empty Name: ${skippedEmptyName}, Invalid Rows: ${invalid}, Failed Create: ${failedCreate}.`;
+      const summary = `Import completed. Created: ${created} (${matchedByName} matched by name), Updated: ${updated}, Skipped Loan Accounts: ${skippedLoanAccount}, Skipped NOT FOUND Marker: ${skippedNotFoundMarker}, Skipped Empty Name: ${skippedEmptyName}, Invalid Rows: ${invalid}, Failed: ${failedCreate}.`;
       setImportSummary(summary);
       setFailedImportRows(failedRows);
 
@@ -530,6 +614,7 @@ const Accounts: React.FC = () => {
       setCustomerDropdownOpen(false);
       // Refresh accounts to get updated data
       fetchAccounts();
+      fetchNextAccountNumber();
     } catch (err) {
       console.error('Error creating account:', err);
       setError('Failed to create account. Please try again.');
@@ -641,29 +726,30 @@ const Accounts: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Accounts</h1>
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-dark-text">Accounts</h1>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Show:</span>
-            <select 
-              value={itemsPerPage} 
+            <span className="text-sm text-gray-600 dark:text-dark-text">Show:</span>
+            <select
+              value={itemsPerPage}
               onChange={(e) => {
                 setItemsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text rounded-md text-sm"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-            <span className="text-sm text-gray-600">per page</span>
+            <span className="text-sm text-gray-600 dark:text-dark-text">per page</span>
           </div>
           <Button onClick={() => {
             setIsAddModalOpen(true);
             setIsAccountNumberEditable(false);
             setManualAccountNumber(nextAccountNumber);
+            fetchNextAccountNumber();
           }} className="flex items-center gap-2">
             <PlusCircle className="w-5 h-5" />
             New Account
@@ -710,9 +796,9 @@ const Accounts: React.FC = () => {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center gap-3">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600" />
-          <span className="text-red-700">{error}</span>
+          <span className="text-red-700 dark:text-red-300">{error}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -725,7 +811,7 @@ const Accounts: React.FC = () => {
       )}
 
       {importSummary && !error && (
-        <div className="bg-green-50 border border-green-200 rounded-md p-4 text-green-700">
+        <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-md p-4 text-green-700 dark:text-green-300">
           <div className="flex items-center justify-between gap-3">
             <span>{importSummary}</span>
             {failedImportRows.length > 0 && (
@@ -745,8 +831,8 @@ const Accounts: React.FC = () => {
         </div>
       )}
 
-      <div className="bg-white shadow rounded-lg">
-        <div className="p-6 border-b border-gray-200">
+      <div className="bg-white dark:bg-dark-surface shadow rounded-lg dark:border dark:border-dark-border">
+        <div className="p-6 border-b border-gray-200 dark:border-dark-border">
           <div className="flex items-center gap-4">
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
@@ -758,21 +844,21 @@ const Accounts: React.FC = () => {
               />
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-600">Show:</span>
-              <select 
-                value={itemsPerPage} 
+              <span className="text-sm text-gray-600 dark:text-dark-text">Show:</span>
+              <select
+                value={itemsPerPage}
                 onChange={(e) => {
                   setItemsPerPage(Number(e.target.value));
                   setCurrentPage(1);
                 }}
-                className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+                className="px-3 py-1 border border-gray-300 dark:border-dark-border dark:bg-dark-surface dark:text-dark-text rounded-md text-sm"
               >
                 <option value={10}>10</option>
                 <option value={25}>25</option>
                 <option value={50}>50</option>
                 <option value={100}>100</option>
               </select>
-              <span className="text-sm text-gray-600">per page</span>
+              <span className="text-sm text-gray-600 dark:text-dark-text">per page</span>
             </div>
           </div>
         </div>
@@ -796,21 +882,21 @@ const Accounts: React.FC = () => {
           <TableBody>
             {accounts.map((account) => (
               <TableRow key={account.id}>
-                <TableCell className="font-medium">{account.accountNumber}</TableCell>
-                <TableCell>
+                <TableCell className="font-medium text-gray-900 dark:text-dark-text">{account.accountNumber}</TableCell>
+                <TableCell className="dark:text-dark-text">
                   {account.customerName || 'Unknown'}
                 </TableCell>
-                <TableCell>{account.type}</TableCell>
-                <TableCell>{formatCurrency(account.balance, 'GHS', 'en-GH', 2)}</TableCell>
-                <TableCell>{formatCurrency(account.availableBalance || account.balance, 'GHS', 'en-GH', 2)}</TableCell>
-                <TableCell>{formatCurrency(account.shareBalance || 0, 'GHS', 'en-GH', 2)}</TableCell>
-                <TableCell>{formatCurrency(account.sharesAvailableBalance || 0, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{account.type}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(account.balance, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(account.availableBalance || account.balance, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(account.shareBalance || 0, 'GHS', 'en-GH', 2)}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatCurrency(account.sharesAvailableBalance || 0, 'GHS', 'en-GH', 2)}</TableCell>
                 <TableCell>
                   <Badge variant={getStatusBadgeVariant(account.status)}>
                     {account.status}
                   </Badge>
                 </TableCell>
-                <TableCell>{formatDate(account.dateOpened)}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatDate(account.dateOpened)}</TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Button
@@ -844,12 +930,12 @@ const Accounts: React.FC = () => {
 
         {accounts.length === 0 && !isLoading && (
           <div className="text-center py-12">
-            <p className="text-gray-500">No accounts found</p>
+            <p className="text-gray-500 dark:text-gray-400">No accounts found</p>
           </div>
         )}
 
         {/* Summary Information */}
-        <div className="px-6 py-3 border-t border-gray-200 flex justify-between items-center text-sm text-gray-600">
+        <div className="px-6 py-3 border-t border-gray-200 dark:border-dark-border flex justify-between items-center text-sm text-gray-600 dark:text-dark-text">
           <span>
             Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems} accounts
             {searchQuery && ` (search: "${searchQuery}")`}
@@ -861,7 +947,7 @@ const Accounts: React.FC = () => {
 
         {/* Pagination - Always show if there are accounts */}
         {totalItems > 0 && (
-          <div className="p-6 border-t border-gray-200">
+          <div className="p-6 border-t border-gray-200 dark:border-dark-border">
             <div className="flex justify-center items-center gap-4">
               <button
                 onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
@@ -870,7 +956,7 @@ const Accounts: React.FC = () => {
               >
                 Previous
               </button>
-              <span className="px-4 py-2">
+              <span className="px-4 py-2 dark:text-dark-text">
                 Page {currentPage} of {Math.max(1, totalPages)}
               </span>
               <button
@@ -880,7 +966,7 @@ const Accounts: React.FC = () => {
               >
                 Next
               </button>
-              <div className="ml-4 text-sm text-gray-600">
+              <div className="ml-4 text-sm text-gray-600 dark:text-dark-text">
                 Total: {totalItems} accounts
               </div>
             </div>
@@ -908,7 +994,7 @@ const Accounts: React.FC = () => {
         <div className="p-6">
           <div className="space-y-4">
             <div>
-              <label htmlFor="customerSelect" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="customerSelect" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                 Select Customer *
               </label>
               <div className="relative">
@@ -924,12 +1010,12 @@ const Accounts: React.FC = () => {
                   fullWidth
                 />
                 {customerDropdownOpen && (
-                  <div 
+                  <div
                     ref={customerDropdownRef}
-                    className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto"
+                    className="absolute z-50 w-full mt-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-dark-border rounded-md shadow-lg max-h-60 overflow-auto"
                   >
                     {isLoadingCustomers ? (
-                      <div className="p-3 text-center text-gray-500">
+                      <div className="p-3 text-center text-gray-500 dark:text-gray-400">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mx-auto"></div>
                         <span className="ml-2">Searching...</span>
                       </div>
@@ -938,13 +1024,13 @@ const Accounts: React.FC = () => {
                         {/* Show filtered customers from search */}
                         {customerSearchQuery.trim() && filteredCustomers.length > 0 && (
                           <>
-                            <div className="px-3 py-2 text-xs font-semibold text-gray-500 bg-gray-50 border-b">
+                            <div className="px-3 py-2 text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-b dark:border-dark-border">
                               Search Results
                             </div>
                             {filteredCustomers.map((customer) => (
                               <div
                                 key={customer.id}
-                                className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                                className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-100 dark:border-dark-border last:border-b-0"
                                 onClick={(e) => {
                                   e.preventDefault();
                                   e.stopPropagation();
@@ -953,23 +1039,23 @@ const Accounts: React.FC = () => {
                                   setCustomerDropdownOpen(false);
                                 }}
                               >
-                                <div className="font-medium text-gray-900">{customer.name}</div>
+                                <div className="font-medium text-gray-900 dark:text-dark-text">{customer.name}</div>
                                 {customer.email && (
-                                  <div className="text-sm text-gray-500">{customer.email}</div>
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">{customer.email}</div>
                                 )}
                                 {customer.phone && (
-                                  <div className="text-sm text-gray-500">{customer.phone}</div>
+                                  <div className="text-sm text-gray-500 dark:text-gray-400">{customer.phone}</div>
                                 )}
                               </div>
                             ))}
                           </>
                         )}
-                        
+
                         {/* Show recent/all customers when no search query */}
                         {!customerSearchQuery.trim() && customers.slice(0, 20).map((customer) => (
                           <div
                             key={customer.id}
-                            className="px-3 py-2 hover:bg-blue-50 cursor-pointer border-b border-gray-100 last:border-b-0"
+                            className="px-3 py-2 hover:bg-blue-50 dark:hover:bg-gray-700 cursor-pointer border-b border-gray-100 dark:border-dark-border last:border-b-0"
                             onClick={(e) => {
                               e.preventDefault();
                               e.stopPropagation();
@@ -978,19 +1064,19 @@ const Accounts: React.FC = () => {
                               setCustomerDropdownOpen(false);
                             }}
                           >
-                            <div className="font-medium text-gray-900">{customer.name}</div>
+                            <div className="font-medium text-gray-900 dark:text-dark-text">{customer.name}</div>
                             {customer.email && (
-                              <div className="text-sm text-gray-500">{customer.email}</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">{customer.email}</div>
                             )}
                             {customer.phone && (
-                              <div className="text-sm text-gray-500">{customer.phone}</div>
+                              <div className="text-sm text-gray-500 dark:text-gray-400">{customer.phone}</div>
                             )}
                           </div>
                         ))}
-                        
+
                         {/* No results message */}
                         {customerSearchQuery.trim() && filteredCustomers.length === 0 && !isLoadingCustomers && (
-                          <div className="px-3 py-6 text-center text-gray-500">
+                          <div className="px-3 py-6 text-center text-gray-500 dark:text-gray-400">
                             <p>No customers found matching "{customerSearchQuery}"</p>
                             <Button
                               variant="outline"
@@ -1007,17 +1093,17 @@ const Accounts: React.FC = () => {
                             </Button>
                           </div>
                         )}
-                        
+
                         {/* Show hint when no search query */}
                         {!customerSearchQuery.trim() && customers.length === 0 && (
-                          <div className="px-3 py-4 text-center text-gray-500">
+                          <div className="px-3 py-4 text-center text-gray-500 dark:text-gray-400">
                             <p>No customers available</p>
                           </div>
                         )}
-                        
+
                         {/* Show "type to search" hint */}
                         {!customerSearchQuery.trim() && customers.length > 20 && (
-                          <div className="px-3 py-2 text-xs text-gray-500 bg-gray-50 border-t">
+                          <div className="px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 border-t dark:border-dark-border">
                             Showing first 20 customers. Type to search for more...
                           </div>
                         )}
@@ -1027,14 +1113,14 @@ const Accounts: React.FC = () => {
                 )}
               </div>
               {selectedCustomerId && (
-                <div className="mt-2 text-sm text-green-600">
+                <div className="mt-2 text-sm text-green-600 dark:text-green-400">
                   ✓ Customer selected: {customers.find(c => c.id === selectedCustomerId)?.name || filteredCustomers.find(c => c.id === selectedCustomerId)?.name}
                 </div>
               )}
             </div>
             
             <div>
-              <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="accountNumber" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                 Account Number
               </label>
               <div className="flex items-center gap-2 mb-2">
@@ -1051,7 +1137,7 @@ const Accounts: React.FC = () => {
                   }}
                   className="h-4 w-4"
                 />
-                <label htmlFor="toggleEditableAccountNumber" className="text-sm text-gray-700">
+                <label htmlFor="toggleEditableAccountNumber" className="text-sm text-gray-700 dark:text-dark-text">
                   Edit account number manually
                 </label>
               </div>
@@ -1064,9 +1150,9 @@ const Accounts: React.FC = () => {
                 fullWidth
               />
             </div>
-            
+
             <div>
-              <label htmlFor="accountType" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="accountType" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                 Account Type *
               </label>
               <Select
@@ -1081,11 +1167,11 @@ const Accounts: React.FC = () => {
                 fullWidth
               />
             </div>
-            
+
             <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-600">Initial Balances:</div>
+              <div className="text-sm text-gray-600 dark:text-dark-text">Initial Balances:</div>
               <div className="flex items-center gap-2">
-                <label htmlFor="toggleInitialBalances" className="text-sm text-gray-700">Show initial balance fields</label>
+                <label htmlFor="toggleInitialBalances" className="text-sm text-gray-700 dark:text-dark-text">Show initial balance fields</label>
                 <input
                   id="toggleInitialBalances"
                   type="checkbox"
@@ -1099,7 +1185,7 @@ const Accounts: React.FC = () => {
               {showInitialBalances ? (
                 <>
                   <div>
-                    <label htmlFor="initialBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="initialBalance" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                       Initial Balance
                     </label>
                     <Input
@@ -1112,7 +1198,7 @@ const Accounts: React.FC = () => {
                   </div>
 
                   <div>
-                    <label htmlFor="shareBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                    <label htmlFor="shareBalance" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                       Shares Initial Balance
                     </label>
                     <Input
@@ -1127,10 +1213,10 @@ const Accounts: React.FC = () => {
               ) : (
                 <>
                   <div>
-                    <div className="text-sm text-gray-500">Initial Balance field is currently hidden</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">Initial Balance field is currently hidden</div>
                   </div>
                   <div>
-                    <div className="text-sm text-gray-500">Shares Initial Balance field is currently hidden</div>
+                    <div className="text-sm text-gray-500 dark:text-gray-400">Shares Initial Balance field is currently hidden</div>
                   </div>
                 </>
               )}
@@ -1218,7 +1304,7 @@ const Accounts: React.FC = () => {
           {currentAccount && (
             <div className="space-y-4">
               <div>
-                <label htmlFor="editCustomerName" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editCustomerName" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Customer Name
                 </label>
                 <Input
@@ -1229,7 +1315,7 @@ const Accounts: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="editAccountNumber" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editAccountNumber" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Account Number
                 </label>
                 <Input
@@ -1241,7 +1327,7 @@ const Accounts: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="editAccountType" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editAccountType" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Account Type
                 </label>
                 <Select
@@ -1259,7 +1345,7 @@ const Accounts: React.FC = () => {
               
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label htmlFor="editBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="editBalance" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                     Balance
                   </label>
                   <Input
@@ -1271,7 +1357,7 @@ const Accounts: React.FC = () => {
                 </div>
                 
                 <div>
-                  <label htmlFor="editShareBalance" className="block text-sm font-medium text-gray-700 mb-1">
+                  <label htmlFor="editShareBalance" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                     Shares Balance
                   </label>
                   <Input
@@ -1284,7 +1370,7 @@ const Accounts: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="editStatus" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editStatus" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Status
                 </label>
                 <Select
@@ -1301,7 +1387,7 @@ const Accounts: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="editCurrency" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editCurrency" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Currency
                 </label>
                 <Select
@@ -1318,7 +1404,7 @@ const Accounts: React.FC = () => {
               </div>
               
               <div>
-                <label htmlFor="editBranch" className="block text-sm font-medium text-gray-700 mb-1">
+                <label htmlFor="editBranch" className="block text-sm font-medium text-gray-700 dark:text-dark-text mb-1">
                   Branch
                 </label>
                 <Select
@@ -1406,7 +1492,7 @@ const Accounts: React.FC = () => {
         title="Delete Account"
       >
         <div className="p-6">
-          <p className="text-gray-600 mb-4">
+          <p className="text-gray-600 dark:text-dark-text mb-4">
             Are you sure you want to delete this account? This action cannot be undone.
           </p>
           <div className="flex justify-end gap-3">

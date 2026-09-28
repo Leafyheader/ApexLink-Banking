@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { Link, useLocation, Outlet } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -22,40 +22,21 @@ import {
 import Button from '../ui/Button';
 import ApexLinkLogo from '../icons/BankingIcon';
 import { useAuth } from '../../contexts/AuthContext';
+import { useTheme } from '../../contexts/ThemeContext';
 import BankingIcon from '../icons/BankingIcon';
 
 const MainLayout: React.FC = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [isDarkMode, setIsDarkMode] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark' ||
-        (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
-    }
-    return false;
-  });
-  
+  const { isDarkMode, toggleTheme } = useTheme();
+
   const location = useLocation();
   const { user, logout } = useAuth();
-
-  useEffect(() => {
-    if (isDarkMode) {
-      document.documentElement.classList.add('dark');
-      localStorage.setItem('theme', 'dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-      localStorage.setItem('theme', 'light');
-    }
-  }, [isDarkMode]);
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
-  const toggleDarkMode = () => {
-    setIsDarkMode(!isDarkMode);
-  };
-
-  const navigationItems = [
+  const allNavigationItems = [
     { name: 'Dashboard', path: '/', icon: <LayoutDashboard size={20} /> },
     { name: 'Customers', path: '/customers', icon: <Users size={20} /> },
     { name: 'Accounts', path: '/accounts', icon: <CreditCard size={20} /> },
@@ -70,8 +51,10 @@ const MainLayout: React.FC = () => {
     { name: 'User Management', path: '/users', icon: <UserCheck size={20} /> },
     { name: 'Reports', path: '/reports', icon: <FileText size={20} /> },
     { name: 'Audit Trail', path: '/audit', icon: <ShieldCheck size={20} /> },
-    { name: 'Settings', path: '/settings', icon: <Settings size={20} /> },
+    { name: 'Settings', path: '/settings', icon: <Settings size={20} />, adminOnly: true },
   ];
+
+  const navigationItems = allNavigationItems.filter((item) => !item.adminOnly || user?.role === 'ADMIN');
 
   const closeSidebarIfMobile = () => {
     if (window.innerWidth < 1024) {
@@ -211,7 +194,7 @@ const MainLayout: React.FC = () => {
                 variant="ghost"
                 size="sm"
                 className="mr-2 hover:bg-gray-100 dark:hover:bg-gray-700"
-                onClick={toggleDarkMode}
+                onClick={toggleTheme}
                 aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
               >
                 {isDarkMode ? (

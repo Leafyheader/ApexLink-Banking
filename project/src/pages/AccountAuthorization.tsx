@@ -68,6 +68,7 @@ const AccountAuthorization: React.FC = () => {
   // Loading state
   const [isLoading, setIsLoading] = useState(false);
   const [isPageLoading, setIsPageLoading] = useState(true);
+  const [isApprovingAll, setIsApprovingAll] = useState(false);
   // Fetch account authorizations
   const fetchAccountAuthorizations = useCallback(async () => {
     try {
@@ -144,6 +145,26 @@ const AccountAuthorization: React.FC = () => {
     }
   };
 
+  // Approve every pending account in the system, regardless of the current search/filter
+  const handleApproveAll = async () => {
+    const confirmed = window.confirm(
+      `Approve all ${summary.pending} pending account(s)? This will activate every pending account in the system, not just the ones currently shown.`
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsApprovingAll(true);
+      const response = await api.post('/account-authorizations/approve-all');
+      await fetchAccountAuthorizations();
+      alert(`Approved ${response.data?.approvedCount ?? 0} account(s).`);
+    } catch (error) {
+      console.error('Error approving all accounts:', error);
+      alert('Failed to approve all accounts. Please try again.');
+    } finally {
+      setIsApprovingAll(false);
+    }
+  };
+
   // Confirm reverse account
   const confirmReverseAccount = async () => {
     if (!currentAccount) return;
@@ -203,7 +224,7 @@ const AccountAuthorization: React.FC = () => {
   if (isPageLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-gray-500">Loading account authorizations...</div>
+        <div className="text-gray-500 dark:text-dark-text">Loading account authorizations...</div>
       </div>
     );
   }
@@ -213,8 +234,8 @@ const AccountAuthorization: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Account Authorization</h1>
-          <p className="text-gray-600">Review and authorize account openings</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Account Authorization</h1>
+          <p className="text-gray-600 dark:text-dark-text">Review and authorize account openings</p>
         </div>
       </div>
 
@@ -237,58 +258,66 @@ const AccountAuthorization: React.FC = () => {
             fullWidth
           />
         </div>
+        <Button
+          variant="primary"
+          leftIcon={<CheckCircle size={18} />}
+          onClick={handleApproveAll}
+          disabled={isApprovingAll || summary.pending === 0}
+        >
+          {isApprovingAll ? 'Approving...' : 'Approve All'}
+        </Button>
       </div>
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Total Accounts</p>
-              <p className="text-2xl font-bold text-gray-900">{summary.total}</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Total Accounts</p>
+              <p className="text-2xl font-bold text-gray-900 dark:text-dark-text">{summary.total}</p>
             </div>
-            <div className="bg-blue-100 p-2 rounded-lg">
-              <Filter className="h-6 w-6 text-blue-600" />
+            <div className="bg-blue-100 dark:bg-blue-900 p-2 rounded-lg">
+              <Filter className="h-6 w-6 text-blue-600 dark:text-blue-300" />
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Approved</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Approved</p>
               <p className="text-2xl font-bold text-green-600">{summary.approved}</p>
             </div>
-            <div className="bg-green-100 p-2 rounded-lg">
-              <CheckCircle className="h-6 w-6 text-green-600" />
+            <div className="bg-green-100 dark:bg-green-900 p-2 rounded-lg">
+              <CheckCircle className="h-6 w-6 text-green-600 dark:text-green-300" />
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Pending</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Pending</p>
               <p className="text-2xl font-bold text-orange-600">{summary.pending}</p>
             </div>
-            <div className="bg-orange-100 p-2 rounded-lg">
-              <XCircle className="h-6 w-6 text-orange-600" />
+            <div className="bg-orange-100 dark:bg-orange-900 p-2 rounded-lg">
+              <XCircle className="h-6 w-6 text-orange-600 dark:text-orange-300" />
             </div>
           </div>
         </div>
-        <div className="bg-white p-4 rounded-lg shadow">
+        <div className="bg-white dark:bg-dark-surface p-4 rounded-lg shadow dark:border dark:border-dark-border">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm text-gray-600">Rejected</p>
+              <p className="text-sm text-gray-600 dark:text-dark-text">Rejected</p>
               <p className="text-2xl font-bold text-red-600">{summary.rejected}</p>
             </div>
-            <div className="bg-red-100 p-2 rounded-lg">
-              <XCircle className="h-6 w-6 text-red-600" />
+            <div className="bg-red-100 dark:bg-red-900 p-2 rounded-lg">
+              <XCircle className="h-6 w-6 text-red-600 dark:text-red-300" />
             </div>
           </div>
         </div>
       </div>
 
       {/* Accounts Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow overflow-hidden dark:border dark:border-dark-border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -305,18 +334,18 @@ const AccountAuthorization: React.FC = () => {
           <TableBody>
             {accounts.map((account) => (
               <TableRow key={account.id}>
-                <TableCell className="font-medium text-gray-900">
+                <TableCell className="font-medium text-gray-900 dark:text-dark-text">
                   {account.accountNumber}
                 </TableCell>
-                <TableCell>{account.accountName}</TableCell>
+                <TableCell className="dark:text-dark-text">{account.accountName}</TableCell>
                 <TableCell>
                   <Badge variant="default">
                     {getAccountTypeDisplay(account.accountType)}
                   </Badge>
                 </TableCell>
-                <TableCell>{formatDate(account.createdAt)}</TableCell>
-                <TableCell>{account.createdBy}</TableCell>
-                <TableCell>{account.approvedBy || '-'}</TableCell>
+                <TableCell className="dark:text-dark-text">{formatDate(account.createdAt)}</TableCell>
+                <TableCell className="dark:text-dark-text">{account.createdBy}</TableCell>
+                <TableCell className="dark:text-dark-text">{account.approvedBy || '-'}</TableCell>
                 <TableCell>
                   <Badge variant={getStatusVariant(account.status)}>
                     {account.status.charAt(0).toUpperCase() + account.status.slice(1)}
@@ -343,7 +372,7 @@ const AccountAuthorization: React.FC = () => {
                         Reverse
                       </Button>
                     ) : (
-                      <span className="text-gray-400">No action</span>
+                      <span className="text-gray-400 dark:text-gray-500">No action</span>
                     )}
                   </div>
                 </TableCell>
@@ -352,7 +381,7 @@ const AccountAuthorization: React.FC = () => {
 
             {accounts.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={8} className="text-center py-6 text-gray-500 dark:text-dark-text">
                   {searchQuery || statusFilter !== 'all'
                     ? 'No accounts found matching your criteria'
                     : 'No accounts found'}
@@ -398,10 +427,10 @@ const AccountAuthorization: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to approve the following account?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="font-medium">Account Number:</span>
@@ -451,10 +480,10 @@ const AccountAuthorization: React.FC = () => {
           }
         >
           <div className="space-y-4">
-            <p className="text-gray-700">
+            <p className="text-gray-700 dark:text-dark-text">
               Are you sure you want to reverse the approval for the following account?
             </p>
-            <div className="bg-gray-50 p-4 rounded-md">
+            <div className="bg-gray-50 dark:bg-dark-border p-4 rounded-md">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
                   <span className="font-medium">Account Number:</span>
@@ -474,8 +503,8 @@ const AccountAuthorization: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="bg-yellow-50 p-4 rounded-md">
-              <p className="text-sm text-yellow-700">
+            <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-md">
+              <p className="text-sm text-yellow-700 dark:text-yellow-300">
                 <strong>Warning:</strong> Reversing the approval will change the account status back to "Pending" and require re-authorization.
               </p>
             </div>

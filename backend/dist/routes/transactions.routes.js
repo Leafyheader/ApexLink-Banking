@@ -17,6 +17,8 @@ router.get('/:id', auth_1.authenticateToken, transactions_controller_1.getTransa
 router.post('/', auth_1.authenticateToken, transactions_controller_1.createTransaction);
 // POST /api/transactions/ledger - Create a new transaction using ledger system
 router.post('/ledger', auth_1.authenticateToken, transactions_controller_1.createTransactionWithLedger);
+// PUT /api/transactions/:id - Edit a pending/failed transaction's details
+router.put('/:id', auth_1.authenticateToken, transactions_controller_1.updateTransaction);
 // PUT /api/transactions/:id/status - Update transaction status
 router.put('/:id/status', auth_1.authenticateToken, transactions_controller_1.updateTransactionStatus);
 // GET /api/transactions/account/:accountId/notifications - Get account notifications

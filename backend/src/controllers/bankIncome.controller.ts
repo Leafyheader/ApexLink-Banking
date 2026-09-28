@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../types/auth';
 import { BankIncomeService } from '../services/bankIncome.service';
+import { parseRangeStart, parseRangeEnd } from '../utils/cashReporting';
 
 /**
  * Get bank income statistics
@@ -9,15 +10,8 @@ export const getBankIncomeStats = async (req: AuthRequest, res: Response) => {
   try {
     const { startDate, endDate } = req.query;
 
-    let start: Date | undefined;
-    let end: Date | undefined;
-
-    if (startDate) {
-      start = new Date(startDate as string);
-    }
-    if (endDate) {
-      end = new Date(endDate as string);
-    }
+    const start = parseRangeStart(startDate);
+    const end = parseRangeEnd(endDate);
 
     const stats = await BankIncomeService.getIncomeStats(start, end);
     res.json(stats);
@@ -59,30 +53,14 @@ export const getRecentBankIncome = async (req: AuthRequest, res: Response) => {
 };
 
 /**
- * Calculate and record daily loan interest for all active loans
- * This endpoint should be called daily (ideally via a cron job)
+ * Disabled. Loan interest is booked as income when it is actually received, as part of each
+ * loan repayment (see handleLoanRepaymentWithDisbursement). This endpoint booked accrued interest
+ * a second time with no cash behind it, and every call (it had no idempotency) added more.
  */
-export const calculateDailyLoanInterest = async (req: AuthRequest, res: Response) => {
-  try {
-    const incomeRecords = await BankIncomeService.calculateDailyLoanInterest();
-    
-    const totalInterest = incomeRecords.reduce((sum, record) => sum + Number(record.amount), 0);
-    
-    res.json({
-      message: 'Daily loan interest calculated successfully',
-      recordsCreated: incomeRecords.length,
-      totalInterestIncome: totalInterest,
-      records: incomeRecords.map(record => ({
-        id: record.id,
-        amount: Number(record.amount),
-        loanId: record.sourceId,
-        customerName: record.customer?.name || 'Unknown'
-      }))
-    });
-  } catch (error) {
-    console.error('Error calculating daily loan interest:', error);
-    res.status(500).json({ error: 'Failed to calculate daily loan interest' });
-  }
+export const calculateDailyLoanInterest = async (_req: AuthRequest, res: Response) => {
+  res.status(410).json({
+    error: 'Daily interest calculation is disabled. Loan interest is recorded as income automatically when repayments are received.'
+  });
 };
 
 /**

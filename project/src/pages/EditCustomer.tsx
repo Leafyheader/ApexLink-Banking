@@ -7,7 +7,7 @@ import Input from '../components/ui/Input';
 import Select from '../components/ui/Select';
 import { Card, CardHeader, CardTitle, CardContent } from '../components/ui/Card';
 import { Customer } from '../types';
-import api from '../lib/api';
+import api, { resolveBackendAssetUrl } from '../lib/api';
 
 const EditCustomer: React.FC = () => {
   const navigate = useNavigate();
@@ -47,7 +47,7 @@ const EditCustomer: React.FC = () => {
     beneficiaryName: '',
     beneficiaryContact: '',
     beneficiaryRelation: '',
-    beneficiaryPercentage: 100,
+    beneficiaryPercentage: 0,
     beneficiary2Name: '',
     beneficiary2Contact: '',
     beneficiary2Relation: '',
@@ -123,7 +123,7 @@ const EditCustomer: React.FC = () => {
           beneficiaryName: customer.beneficiaryName || '',
           beneficiaryContact: customer.beneficiaryContact || '',
           beneficiaryRelation: customer.beneficiaryRelation || '',
-          beneficiaryPercentage: customer.beneficiaryPercentage || 100,
+          beneficiaryPercentage: customer.beneficiaryPercentage || 0,
           beneficiary2Name: customer.beneficiary2Name || '',
           beneficiary2Contact: customer.beneficiary2Contact || '',
           beneficiary2Relation: customer.beneficiary2Relation || '',
@@ -141,7 +141,7 @@ const EditCustomer: React.FC = () => {
         if (customer.photo) {
           if (customer.photo.startsWith('/uploads/')) {
             // It's a file URL, create the full URL
-            setPhotoPreview(`http://localhost:5000${customer.photo}`);
+            setPhotoPreview(resolveBackendAssetUrl(customer.photo) || null);
           } else if (customer.photo.startsWith('data:')) {
             // It's base64 data
             setPhotoPreview(customer.photo);
@@ -150,7 +150,7 @@ const EditCustomer: React.FC = () => {
         if (customer.signature) {
           if (customer.signature.startsWith('/uploads/')) {
             // It's a file URL, create the full URL
-            setSignaturePreview(`http://localhost:5000${customer.signature}`);
+            setSignaturePreview(resolveBackendAssetUrl(customer.signature) || null);
           } else if (customer.signature.startsWith('data:')) {
             // It's base64 data
             setSignaturePreview(customer.signature);
@@ -340,48 +340,35 @@ const EditCustomer: React.FC = () => {
       newErrors.maritalStatus = 'Marital status is required';
     }
     
-    // Contact details validation
-    if (!formData.residentialAddress?.trim()) {
-      newErrors.residentialAddress = 'Residential address is required';
-    }
-    
-    if (!formData.email?.trim()) {
-      newErrors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
+    // Contact details are optional - only validate format when a value is provided
+    if (formData.email?.trim() && !/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Email is invalid';
     }
-      if (!formData.contactNumber?.trim()) {
-      newErrors.contactNumber = 'Contact number is required';
-    } else if (!/^[+]?[0-9][\d]{0,15}$/.test(formData.contactNumber)) {
+
+    if (formData.contactNumber?.trim() && !/^[+]?[0-9][\d]{0,15}$/.test(formData.contactNumber)) {
       newErrors.contactNumber = 'Phone number must start with a digit (0-9) and contain only digits (max 16 total)';
     }
-    
-    if (!formData.city?.trim()) {
-      newErrors.city = 'City is required';
-    }
-    
-    // Beneficiary validation
-    if (!formData.beneficiaryName?.trim()) {
-      newErrors.beneficiaryName = 'Primary beneficiary name is required';
-    }
-    
-    if (!formData.beneficiaryContact?.trim()) {
-      newErrors.beneficiaryContact = 'Primary beneficiary contact is required';
-    }
-    
-    // Calculate total beneficiary percentage
+
+    // Beneficiaries are optional - only require a beneficiary's own fields once any of
+    // them has been filled in, and only cap the combined percentage at 100%.
     const totalPercentage = getTotalPercentage();
-    
     if (totalPercentage > 100) {
       newErrors.beneficiaryPercentage = `Total beneficiary percentage cannot exceed 100% (currently ${totalPercentage}%)`;
     }
-    
-    // Primary beneficiary is required with at least some percentage
+
     const primaryPercentage = Number(formData.beneficiaryPercentage) || 0;
-    if (primaryPercentage <= 0) {
-      newErrors.beneficiaryPercentage = 'Primary beneficiary percentage must be greater than 0';
+    if (formData.beneficiaryName?.trim() || formData.beneficiaryContact?.trim() || primaryPercentage > 0) {
+      if (!formData.beneficiaryName?.trim()) {
+        newErrors.beneficiaryName = 'Primary beneficiary name is required';
+      }
+      if (!formData.beneficiaryContact?.trim()) {
+        newErrors.beneficiaryContact = 'Primary beneficiary contact is required';
+      }
+      if (primaryPercentage <= 0) {
+        newErrors.beneficiaryPercentage = 'Primary beneficiary percentage must be greater than 0';
+      }
     }
-    
+
     // Validate second beneficiary if any field is filled
     const beneficiary2Percentage = Number(formData.beneficiary2Percentage) || 0;
     if (formData.beneficiary2Name?.trim() || formData.beneficiary2Contact?.trim() || beneficiary2Percentage > 0) {
@@ -410,15 +397,9 @@ const EditCustomer: React.FC = () => {
       }
     }
     
-    // Identification validation
-    if (!formData.identificationType) {
-      newErrors.identificationType = 'Identification type is required';
-    }
-    
-    if (!formData.identificationNumber?.trim()) {
-      newErrors.identificationNumber = 'Identification number is required';
-    }
-      setErrors(newErrors);
+    // Identification is optional - no validation required
+
+    setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
 
@@ -479,8 +460,8 @@ const EditCustomer: React.FC = () => {
           firstName: formData.firstName || '',
           surname: formData.surname || '',
           otherName: formData.otherName || '',
-          email: formData.email || '',
-          phone: formData.contactNumber || '',
+          email: formData.email?.trim() || undefined,
+          phone: formData.contactNumber?.trim() || undefined,
           address: formData.residentialAddress || '',
           kycStatus: (formData.kycStatus || 'pending') as 'verified' | 'pending' | 'rejected',
           dateJoined: new Date().toISOString(), // This will be ignored on update
@@ -571,17 +552,17 @@ const EditCustomer: React.FC = () => {
             Back to Customers
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Edit Customer</h1>
-            <p className="text-gray-600">Update customer information</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Edit Customer</h1>
+            <p className="text-gray-600 dark:text-gray-300">Update customer information</p>
           </div>
         </div>
       </div>
 
       {/* Error Display */}
       {errors.submit && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600" />
-          <span className="text-red-700">{errors.submit}</span>
+        <div className="bg-red-50 dark:bg-red-900 border border-red-200 dark:border-red-700 rounded-md p-4 flex items-center gap-3">
+          <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-300" />
+          <span className="text-red-700 dark:text-red-200">{errors.submit}</span>
         </div>
       )}
 
@@ -693,7 +674,6 @@ const EditCustomer: React.FC = () => {
                 value={formData.residentialAddress || ''}
                 onChange={handleChange}
                 error={errors.residentialAddress}
-                required
                 fullWidth
               />
               
@@ -713,7 +693,6 @@ const EditCustomer: React.FC = () => {
                   value={formData.email || ''}
                   onChange={handleChange}
                   error={errors.email}
-                  required
                   fullWidth
                 />
                 <Input
@@ -722,18 +701,16 @@ const EditCustomer: React.FC = () => {
                   value={formData.contactNumber || ''}
                   onChange={handleChange}
                   error={errors.contactNumber}
-                  required
                   fullWidth
                 />
               </div>
-              
+
               <Input
                 label="Town/City"
                 name="city"
                 value={formData.city || ''}
                 onChange={handleChange}
                 error={errors.city}
-                required
                 fullWidth
               />
             </CardContent>
@@ -749,11 +726,11 @@ const EditCustomer: React.FC = () => {
                 </div>
                 <div className="text-sm font-normal">
                   <span className={`px-2 py-1 rounded ${
-                    getTotalPercentage() === 100 
-                      ? 'bg-green-100 text-green-800' 
-                      : getTotalPercentage() > 100 
-                        ? 'bg-red-100 text-red-800' 
-                        : 'bg-yellow-100 text-yellow-800'
+                    getTotalPercentage() === 100
+                      ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                      : getTotalPercentage() > 100
+                        ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
                   }`}>
                     Total: {getTotalPercentage()}%
                   </span>
@@ -763,17 +740,16 @@ const EditCustomer: React.FC = () => {
             <CardContent className="space-y-6">
               {/* Primary Beneficiary */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2">Primary Beneficiary</h4>
+                <h4 className="font-medium text-gray-900 dark:text-dark-text border-b border-gray-200 dark:border-dark-border pb-2">Primary Beneficiary</h4>
                 <Input
                   label="Beneficiary Name"
                   name="beneficiaryName"
                   value={formData.beneficiaryName || ''}
                   onChange={handleChange}
                   error={errors.beneficiaryName}
-                  required
                   fullWidth
                 />
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <Input
                     label="Beneficiary Contact"
@@ -781,7 +757,6 @@ const EditCustomer: React.FC = () => {
                     value={formData.beneficiaryContact || ''}
                     onChange={handleChange}
                     error={errors.beneficiaryContact}
-                    required
                     fullWidth
                   />
                   <Input
@@ -796,12 +771,11 @@ const EditCustomer: React.FC = () => {
                     label="Percentage (%)"
                     name="beneficiaryPercentage"
                     type="number"
-                    min="1"
+                    min="0"
                     max="100"
                     value={formData.beneficiaryPercentage || ''}
                     onChange={handleChange}
                     error={errors.beneficiaryPercentage}
-                    required
                     fullWidth
                   />
                 </div>
@@ -809,7 +783,7 @@ const EditCustomer: React.FC = () => {
 
               {/* Secondary Beneficiary */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2">Secondary Beneficiary (Optional)</h4>
+                <h4 className="font-medium text-gray-900 dark:text-dark-text border-b border-gray-200 dark:border-dark-border pb-2">Secondary Beneficiary (Optional)</h4>
                 <Input
                   label="Beneficiary Name"
                   name="beneficiary2Name"
@@ -849,7 +823,7 @@ const EditCustomer: React.FC = () => {
 
               {/* Tertiary Beneficiary */}
               <div className="space-y-4">
-                <h4 className="font-medium text-gray-900 border-b border-gray-200 pb-2">Tertiary Beneficiary (Optional)</h4>
+                <h4 className="font-medium text-gray-900 dark:text-dark-text border-b border-gray-200 dark:border-dark-border pb-2">Tertiary Beneficiary (Optional)</h4>
                 <Input
                   label="Beneficiary Name"
                   name="beneficiary3Name"
@@ -887,15 +861,15 @@ const EditCustomer: React.FC = () => {
                 </div>
               </div>
 
-              {/* Percentage validation message */}
-              {getTotalPercentage() !== 100 && (
+              {/* Percentage validation message - only nag once the customer has actually started entering beneficiaries */}
+              {getTotalPercentage() > 0 && getTotalPercentage() !== 100 && (
                 <div className={`text-sm p-3 rounded ${
-                  getTotalPercentage() > 100 
-                    ? 'bg-red-50 text-red-700 border border-red-200' 
-                    : 'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                  getTotalPercentage() > 100
+                    ? 'bg-red-50 text-red-700 border border-red-200 dark:bg-red-900 dark:text-red-200 dark:border-red-700'
+                    : 'bg-yellow-50 text-yellow-700 border border-yellow-200 dark:bg-yellow-900 dark:text-yellow-200 dark:border-yellow-700'
                 }`}>
-                  {getTotalPercentage() > 100 
-                    ? 'Total percentage cannot exceed 100%' 
+                  {getTotalPercentage() > 100
+                    ? 'Total percentage cannot exceed 100%'
                     : `Please ensure total percentage equals 100% (currently ${getTotalPercentage()}%)`
                   }
                 </div>
@@ -919,33 +893,31 @@ const EditCustomer: React.FC = () => {
                 onChange={handleSelectChange('identificationType')}
                 options={identificationOptions}
                 error={errors.identificationType}
-                required
                 fullWidth
               />
-              
+
               <Input
                 label="Identification Number"
                 name="identificationNumber"
                 value={formData.identificationNumber || ''}
                 onChange={handleChange}
                 error={errors.identificationNumber}
-                required
                 fullWidth
               />
 
               {/* Photo Upload */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Photo Upload
                 </label>
                 <div
                   {...getPhotoRootProps()}
                   className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
                     isPhotoDragActive
-                      ? 'border-blue-400 bg-blue-50'
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900'
                       : errors.photo
-                        ? 'border-red-400 bg-red-50'
-                        : 'border-gray-400 hover:border-gray-500'
+                        ? 'border-red-400 bg-red-50 dark:bg-red-900'
+                        : 'border-gray-400 dark:border-gray-600 hover:border-gray-500 dark:hover:border-gray-500'
                   }`}
                 >
                   <input {...getPhotoInputProps()} />
@@ -957,14 +929,14 @@ const EditCustomer: React.FC = () => {
                         className="mx-auto h-32 w-32 object-cover rounded-lg"
                       />
                       <div className="flex items-center justify-center space-x-2">
-                        <span className="text-sm text-gray-600">{formData.photo}</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">{formData.photo}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removePhoto();
                           }}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -972,32 +944,32 @@ const EditCustomer: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Upload className="mx-auto h-8 w-8 text-gray-400" />
+                      <Upload className="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
                       <div className="text-sm">
-                        <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
+                        <span className="font-medium text-blue-600 dark:text-blue-400">Click to upload</span> or drag and drop
                       </div>
-                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 2MB</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">PNG, JPG, GIF up to 2MB</div>
                     </div>
                   )}
                 </div>
                 {errors.photo && (
-                  <div className="mt-2 text-sm text-red-600">{errors.photo}</div>
+                  <div className="mt-2 text-sm text-red-600 dark:text-red-400">{errors.photo}</div>
                 )}
               </div>
 
               {/* Signature Upload */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Signature Upload
                 </label>
                 <div
                   {...getSignatureRootProps()}
                   className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
                     isSignatureDragActive
-                      ? 'border-blue-400 bg-blue-50'
+                      ? 'border-blue-400 bg-blue-50 dark:bg-blue-900'
                       : errors.signature
-                        ? 'border-red-400 bg-red-50'
-                        : 'border-gray-300 hover:border-gray-400'
+                        ? 'border-red-400 bg-red-50 dark:bg-red-900'
+                        : 'border-gray-300 dark:border-gray-600 hover:border-gray-400 dark:hover:border-gray-500'
                   }`}
                 >
                   <input {...getSignatureInputProps()} />
@@ -1006,17 +978,17 @@ const EditCustomer: React.FC = () => {
                       <img
                         src={signaturePreview}
                         alt="Signature preview"
-                        className="mx-auto h-20 w-32 object-contain rounded-lg bg-white border"
+                        className="mx-auto h-20 w-32 object-contain rounded-lg bg-white border dark:border-gray-600"
                       />
                       <div className="flex items-center justify-center space-x-2">
-                        <span className="text-sm text-gray-600">{formData.signature}</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">{formData.signature}</span>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeSignature();
                           }}
-                          className="text-red-500 hover:text-red-700"
+                          className="text-red-500 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -1024,16 +996,16 @@ const EditCustomer: React.FC = () => {
                     </div>
                   ) : (
                     <div className="space-y-2">
-                      <Upload className="mx-auto h-8 w-8 text-gray-400" />
+                      <Upload className="mx-auto h-8 w-8 text-gray-400 dark:text-gray-500" />
                       <div className="text-sm">
-                        <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
+                        <span className="font-medium text-blue-600 dark:text-blue-400">Click to upload</span> or drag and drop
                       </div>
-                      <div className="text-xs text-gray-500">PNG, JPG, GIF up to 1MB</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">PNG, JPG, GIF up to 1MB</div>
                     </div>
                   )}
                 </div>
                 {errors.signature && (
-                  <div className="mt-2 text-sm text-red-600">{errors.signature}</div>
+                  <div className="mt-2 text-sm text-red-600 dark:text-red-400">{errors.signature}</div>
                 )}
               </div>
             </CardContent>
@@ -1041,7 +1013,7 @@ const EditCustomer: React.FC = () => {
         </div>
 
         {/* Submit Buttons */}
-        <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200">
+        <div className="flex justify-end space-x-4 pt-6 border-t border-gray-200 dark:border-dark-border">
           <Button
             type="button"
             variant="outline"

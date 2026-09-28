@@ -44,13 +44,16 @@ export const validateCustomerData = [
   body('name')
     .notEmpty().withMessage('Name is required')
     .isLength({ min: 2 }).withMessage('Name must be at least 2 characters long'),
+  // checkFalsy: true so an empty string (an optional field left blank) is treated the same
+  // as an absent field, instead of being validated as if a value was actually provided.
   body('email')
-    .optional()
-    .isEmail().withMessage('Invalid email format'),  body('phone')
-    .optional()
+    .optional({ checkFalsy: true })
+    .isEmail().withMessage('Invalid email format'),
+  body('phone')
+    .optional({ checkFalsy: true })
     .matches(/^[\+]?[0-9][\d]{0,15}$/).withMessage('Invalid phone number format'),
   body('dateOfBirth')
-    .optional()
+    .optional({ checkFalsy: true })
     .isISO8601().withMessage('Invalid date format'),
   body('beneficiaryPercentage')
     .optional()

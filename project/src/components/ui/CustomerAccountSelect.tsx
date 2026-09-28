@@ -62,14 +62,55 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
     const selectedCustomer = customers.find(c => c.id === value?.customerId);
     const selectedAccount = selectedCustomer?.accounts?.find(a => a.id === value?.accountId);
 
-    // Filter customers based on search query and exclusions
+    // Extracts the numeric value of an account number ignoring the "ACC" prefix
+    // and any leading zeros, so "ACC0000045" and "ACC000000045" both resolve to "45".
+    const getAccountNumberDigits = (accountNumber: string): string => {
+      const digitsOnly = accountNumber.replace(/\D/g, '');
+      return digitsOnly.replace(/^0+/, '') || '0';
+    };
+
+    const trimmedQuery = searchQuery.trim();
+    const isNumericQuery = /^\d+$/.test(trimmedQuery);
+
+    // Finds the account (if any) on a customer that matches the current search query,
+    // so typing a plain number like "45" can jump straight to the account, not just the customer.
+    const matchAccountForQuery = (customer: Customer) => {
+      if (!trimmedQuery || !customer.accounts) return undefined;
+      const searchLower = trimmedQuery.toLowerCase();
+      return customer.accounts.find((account) =>
+        isNumericQuery
+          ? getAccountNumberDigits(account.accountNumber).startsWith(trimmedQuery)
+          : account.accountNumber.toLowerCase().includes(searchLower)
+      );
+    };
+
+    // Filter customers based on search query (name, contact info, or account number) and exclusions
     const filteredCustomers = customers
       .filter(customer => !excludeCustomerIds.includes(customer.id))
-      .filter(customer =>
-        customer.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (customer.email && customer.email.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        (customer.phone && customer.phone.toLowerCase().includes(searchQuery.toLowerCase()))
-      );
+      .filter(customer => {
+        if (!trimmedQuery) return true;
+        const searchLower = trimmedQuery.toLowerCase();
+        const matchesCustomerInfo =
+          customer.name.toLowerCase().includes(searchLower) ||
+          (customer.email && customer.email.toLowerCase().includes(searchLower)) ||
+          (customer.phone && customer.phone.toLowerCase().includes(searchLower));
+        return matchesCustomerInfo || !!matchAccountForQuery(customer);
+      });
+
+    // When searching numerically, surface the customer whose account number is an
+    // exact match first, so a fully-typed number (e.g. "45") lands on that account
+    // at the top instead of a longer account number that merely starts with it.
+    if (isNumericQuery) {
+      filteredCustomers.sort((a, b) => {
+        const aMatch = matchAccountForQuery(a);
+        const bMatch = matchAccountForQuery(b);
+        const aExact = aMatch ? getAccountNumberDigits(aMatch.accountNumber) === trimmedQuery : false;
+        const bExact = bMatch ? getAccountNumberDigits(bMatch.accountNumber) === trimmedQuery : false;
+        if (aExact && !bExact) return -1;
+        if (!aExact && bExact) return 1;
+        return 0;
+      });
+    }
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -110,14 +151,18 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
     }, [isCreating]);
 
     const handleCustomerSelect = (customer: Customer) => {
-      // If customer has accounts and account selection is required, don't auto-select first account
+      // Prefer the account that matched the search query (e.g. typed an account number),
+      // otherwise auto-select when the customer has exactly one account.
+      const matchedAccount = matchAccountForQuery(customer);
+      const autoAccountId =
+        matchedAccount?.id ??
+        (customer.accounts && customer.accounts.length === 1 ? customer.accounts[0].id : undefined);
+
       const selection = {
         customerId: customer.id,
-        accountId: showAccountSelection && customer.accounts && customer.accounts.length === 1 
-          ? customer.accounts[0].id 
-          : undefined
+        accountId: showAccountSelection ? autoAccountId : undefined
       };
-      
+
       onChange?.(selection);
       setIsOpen(false);
       setSearchQuery('');
@@ -168,18 +213,18 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
     };
 
     const widthClass = fullWidth ? 'w-full' : '';
-    const errorClass = error 
-      ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500' 
-      : 'border-gray-400 focus-within:ring-blue-500 focus-within:border-blue-500';
+    const errorClass = error
+      ? 'border-red-500 focus-within:ring-red-500 focus-within:border-red-500'
+      : 'border-gray-400 focus-within:ring-blue-500 focus-within:border-blue-500 dark:border-gray-600 dark:focus-within:border-blue-400';
 
     return (
       <div className={`relative ${widthClass}`} ref={ref}>
         {label && (
-          <label className="block text-sm font-medium text-gray-700 mb-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             {label}
           </label>
         )}
-        
+
         <div ref={containerRef} className="relative space-y-3">
           {/* Customer Selection */}
           <button
@@ -187,20 +232,17 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
             onClick={() => !disabled && setIsOpen(!isOpen)}
             disabled={disabled}
             className={`
-              w-full px-3 py-2 text-left bg-white border-2 rounded-md shadow-sm
+              w-full px-3 py-2 text-left bg-white dark:bg-dark-surface border-2 rounded-md shadow-sm
               ${errorClass}
-              ${disabled ? 'bg-gray-100 cursor-not-allowed' : 'cursor-pointer hover:border-gray-500'}
+              ${disabled ? 'bg-gray-100 cursor-not-allowed dark:bg-gray-800' : 'cursor-pointer hover:border-gray-500 dark:hover:border-gray-500'}
               focus:outline-none focus:ring-1
             `}
           >
             <div className="flex items-center justify-between">
-              <span className={selectedCustomer ? 'text-gray-900' : 'text-gray-500'}>
-                {selectedCustomer 
-                  ? `${selectedCustomer.name} (${selectedCustomer.email || selectedCustomer.phone || 'No contact'})`
-                  : placeholder
-                }
+              <span className={selectedCustomer ? 'text-gray-900 dark:text-dark-text' : 'text-gray-500 dark:text-gray-400'}>
+                {selectedCustomer ? selectedCustomer.name : placeholder}
               </span>
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </div>
@@ -208,18 +250,18 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
 
           {/* Customer Dropdown */}
           {isOpen && !disabled && (
-            <div className="absolute z-[9999] w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-auto">
+            <div className="absolute z-[9999] w-full mt-1 bg-white dark:bg-dark-surface border border-gray-300 dark:border-gray-600 rounded-md shadow-lg dark:shadow-gray-900/50 max-h-60 overflow-auto">
               {/* Search Input */}
-              <div className="p-2 border-b border-gray-200">
+              <div className="p-2 border-b border-gray-200 dark:border-dark-border">
                 <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 dark:text-gray-500 w-4 h-4" />
                   <input
                     ref={searchInputRef}
                     type="text"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Search customers..."
-                    className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Search customers or account number..."
+                    className="w-full pl-9 pr-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 dark:focus:border-blue-400"
                   />
                 </div>
               </div>
@@ -244,18 +286,18 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
                                 handleEditCancel();
                               }
                             }}
-                            className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                           />
                           <button
                             onClick={() => handleEditSave(customer.id)}
                             disabled={!editingName.trim()}
-                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                            className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed dark:bg-green-500 dark:hover:bg-green-600 dark:disabled:bg-gray-600"
                           >
                             Save
                           </button>
                           <button
                             onClick={handleEditCancel}
-                            className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                            className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600"
                           >
                             Cancel
                           </button>
@@ -263,19 +305,32 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
                       ) : (
                         // Normal Mode
                         <div
-                          className="flex items-center justify-between p-2 hover:bg-gray-50 cursor-pointer group"
+                          className="flex items-center justify-between p-3 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer group"
                           onClick={() => handleCustomerSelect(customer)}
                         >
-                          <div className="flex-1">
-                            <div className="text-sm font-medium text-gray-900">{customer.name}</div>
-                            <div className="text-xs text-gray-500">
-                              {customer.email || customer.phone || 'No contact'} • {customer.accounts?.length || 0} account(s)
+                          <div className="flex items-center flex-1 min-w-0">
+                            <User className="w-4 h-4 text-blue-600 dark:text-blue-400 mr-2 flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm font-medium text-gray-900 dark:text-dark-text truncate">
+                                {customer.name}
+                              </div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                {(() => {
+                                  const matched = matchAccountForQuery(customer);
+                                  if (matched) {
+                                    return `Matched account: ${matched.accountNumber}`;
+                                  }
+                                  return customer.accounts && customer.accounts.length > 0
+                                    ? customer.accounts.map((account) => account.accountNumber).join(', ')
+                                    : 'No accounts';
+                                })()}
+                              </div>
                             </div>
                           </div>
                           {allowEdit && onUpdateCustomer && (
                             <button
                               onClick={(e) => handleEditStart(customer, e)}
-                              className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 transition-opacity"
+                              className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 transition-opacity flex-shrink-0"
                             >
                               <Edit3 className="w-4 h-4" />
                             </button>
@@ -285,7 +340,7 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
                     </div>
                   ))
                 ) : (
-                  <div className="p-3 text-sm text-gray-500 text-center">
+                  <div className="p-3 text-sm text-gray-500 dark:text-gray-400 text-center">
                     No customers found
                   </div>
                 )}
@@ -293,7 +348,7 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
 
               {/* Create New Customer */}
               {allowCreate && onCreateCustomer && (searchQuery || isCreating) && (
-                <div className="border-t border-gray-200">
+                <div className="border-t border-gray-200 dark:border-dark-border">
                   {isCreating ? (
                     <div className="flex items-center p-2 space-x-2">
                       <input
@@ -309,18 +364,18 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
                           }
                         }}
                         placeholder="Enter customer name..."
-                        className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        className="flex-1 px-2 py-1 text-sm border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-dark-surface text-gray-900 dark:text-dark-text placeholder:text-gray-400 dark:placeholder:text-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:focus:ring-blue-400"
                       />
                       <button
                         onClick={handleCreateSave}
                         disabled={!newCustomerName.trim()}
-                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                        className="px-2 py-1 text-xs bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed dark:bg-green-500 dark:hover:bg-green-600 dark:disabled:bg-gray-600"
                       >
                         Save
                       </button>
                       <button
                         onClick={handleCreateCancel}
-                        className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700"
+                        className="px-2 py-1 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 dark:bg-gray-500 dark:hover:bg-gray-600"
                       >
                         Cancel
                       </button>
@@ -328,7 +383,7 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
                   ) : (
                     <button
                       onClick={handleCreateStart}
-                      className="w-full flex items-center p-2 text-sm text-blue-600 hover:bg-blue-50 hover:text-blue-800"
+                      className="w-full flex items-center p-2 text-sm text-blue-600 hover:bg-blue-50 hover:text-blue-800 dark:text-blue-400 dark:hover:bg-blue-900 dark:hover:text-blue-300"
                     >
                       <Plus className="w-4 h-4 mr-2" />
                       Create new customer "{searchQuery}"
@@ -358,40 +413,40 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
 
           {/* Account Details Display */}
           {selectedCustomer && selectedAccount && (
-            <div className="p-4 bg-gray-50 rounded-lg border">
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-dark-border">
               <div className="flex items-center gap-2 mb-3">
-                <User className="h-4 w-4 text-gray-500" />
-                <span className="font-medium text-gray-700">Account Details</span>
+                <User className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <span className="font-medium text-gray-700 dark:text-gray-300">Account Details</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="text-gray-500 font-medium">Account Number</label>
-                  <p className="text-gray-900">{selectedAccount.accountNumber}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Account Number</label>
+                  <p className="text-gray-900 dark:text-dark-text">{selectedAccount.accountNumber}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Account Type</label>
-                  <p className="text-gray-900 capitalize">{selectedAccount.type}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Account Type</label>
+                  <p className="text-gray-900 dark:text-dark-text capitalize">{selectedAccount.type}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Account Balance</label>
-                  <p className="text-gray-900 font-semibold">{formatCurrency(selectedAccount.balance, 'GHS', 'en-GH', 2)}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Account Balance</label>
+                  <p className="text-gray-900 dark:text-dark-text font-semibold">{formatCurrency(selectedAccount.balance, 'GHS', 'en-GH', 2)}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Shares Balance</label>
-                  <p className="text-gray-900 font-semibold">{formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Shares Balance</label>
+                  <p className="text-gray-900 dark:text-dark-text font-semibold">{formatCurrency(selectedAccount.shareBalance || 0, 'GHS', 'en-GH', 2)}</p>
                 </div>
                 {selectedAccount.availableBalance !== undefined && (
                   <div>
-                    <label className="text-gray-500 font-medium">Available Balance</label>
-                    <p className="text-gray-900">{formatCurrency(selectedAccount.availableBalance, 'GHS', 'en-GH', 2)}</p>
+                    <label className="text-gray-500 dark:text-gray-400 font-medium">Available Balance</label>
+                    <p className="text-gray-900 dark:text-dark-text">{formatCurrency(selectedAccount.availableBalance, 'GHS', 'en-GH', 2)}</p>
                   </div>
                 )}
                 <div>
-                  <label className="text-gray-500 font-medium">Status</label>                  <p className={`capitalize font-medium ${
-                    selectedAccount.status === 'ACTIVE' ? 'text-green-600' : 
-                    selectedAccount.status === 'DORMANT' ? 'text-yellow-600' : 
-                    selectedAccount.status === 'FROZEN' ? 'text-red-600' : 
-                    'text-gray-600'
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Status</label>                  <p className={`capitalize font-medium ${
+                    selectedAccount.status === 'ACTIVE' ? 'text-green-600 dark:text-green-400' :
+                    selectedAccount.status === 'DORMANT' ? 'text-yellow-600 dark:text-yellow-400' :
+                    selectedAccount.status === 'FROZEN' ? 'text-red-600 dark:text-red-400' :
+                    'text-gray-600 dark:text-gray-400'
                   }`}>
                     {selectedAccount.status}
                   </p>
@@ -402,34 +457,34 @@ const CustomerAccountSelect = forwardRef<HTMLDivElement, CustomerAccountSelectPr
 
           {/* Customer Details (when no account selected or account selection not shown) */}
           {selectedCustomer && (!showAccountSelection || !selectedAccount) && (
-            <div className="p-4 bg-gray-50 rounded-lg border">
+            <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-dark-border">
               <div className="flex items-center gap-2 mb-3">
-                <User className="h-4 w-4 text-gray-500" />
-                <span className="font-medium text-gray-700">Customer Information</span>
+                <User className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <span className="font-medium text-gray-700 dark:text-gray-300">Customer Information</span>
               </div>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <label className="text-gray-500 font-medium">Customer Name</label>
-                  <p className="text-gray-900">{selectedCustomer.name}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Customer Name</label>
+                  <p className="text-gray-900 dark:text-dark-text">{selectedCustomer.name}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Phone</label>
-                  <p className="text-gray-900">{selectedCustomer.phone || 'N/A'}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Phone</label>
+                  <p className="text-gray-900 dark:text-dark-text">{selectedCustomer.phone || 'N/A'}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Email</label>
-                  <p className="text-gray-900">{selectedCustomer.email || 'N/A'}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Email</label>
+                  <p className="text-gray-900 dark:text-dark-text">{selectedCustomer.email || 'N/A'}</p>
                 </div>
                 <div>
-                  <label className="text-gray-500 font-medium">Total Accounts</label>
-                  <p className="text-gray-900">{selectedCustomer.accounts?.length || 0}</p>
+                  <label className="text-gray-500 dark:text-gray-400 font-medium">Total Accounts</label>
+                  <p className="text-gray-900 dark:text-dark-text">{selectedCustomer.accounts?.length || 0}</p>
                 </div>
               </div>
             </div>
           )}
         </div>
 
-        {error && <p className="mt-1 text-sm text-red-600">{error}</p>}
+        {error && <p className="mt-1 text-sm text-red-600 dark:text-red-400">{error}</p>}
       </div>
     );
   }

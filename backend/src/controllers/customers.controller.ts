@@ -1,10 +1,27 @@
 import { Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { AuthRequest } from '../types/auth';
 import { generateCustomerId } from '../utils/idGenerator';
 
 const prisma = new PrismaClient();
+
+// Prisma unique-constraint violations (P2002) name the actual conflicting field(s) in
+// error.meta.target - report that instead of always assuming it was the email field.
+function uniqueConstraintMessage(error: unknown): string | null {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+    return null;
+  }
+  const target = error.meta?.target;
+  const fields = Array.isArray(target) ? target.join(', ') : String(target ?? 'field');
+  if (fields.includes('email')) {
+    return 'Customer with this email already exists';
+  }
+  if (fields.includes('customerNumber')) {
+    return 'Failed to generate a unique customer number, please try again';
+  }
+  return `Duplicate value for: ${fields}`;
+}
 
 const formatCustomerResponse = (customer: any) => ({
   id: customer.id,
@@ -310,10 +327,14 @@ export const createCustomer = async (req: AuthRequest, res: Response): Promise<v
     // Generate customer number
     const customerNumber = await generateCustomerId();
 
+    // Normalize to null rather than '' - email has a unique DB constraint, so storing empty
+    // strings for customers who skip it would collide the second time anyone does that.
+    const normalizedEmail = email?.trim() ? email.trim() : null;
+
     // Check if email already exists
-    if (email) {
+    if (normalizedEmail) {
       const existingCustomer = await prisma.customer.findUnique({
-        where: { email }
+        where: { email: normalizedEmail }
       });      if (existingCustomer) {
         res.status(400).json({ error: 'Customer with this email already exists' });
         return;
@@ -322,7 +343,7 @@ export const createCustomer = async (req: AuthRequest, res: Response): Promise<v
       data: {
         customerNumber,
         name: name.trim(),
-        email: email?.trim(),
+        email: normalizedEmail,
         phone: phone?.trim(),
         address: address?.trim(),
         firstName: firstName?.trim(),
@@ -380,8 +401,9 @@ export const createCustomer = async (req: AuthRequest, res: Response): Promise<v
 
     res.status(201).json(formattedCustomer);} catch (error) {
     console.error('Error creating customer:', error);
-    if (error instanceof Error && error.message.includes('Unique constraint')) {
-      res.status(400).json({ error: 'Customer with this email already exists' });
+    const constraintMessage = uniqueConstraintMessage(error);
+    if (constraintMessage) {
+      res.status(400).json({ error: constraintMessage });
       return;
     }
     res.status(500).json({ error: 'Failed to create customer' });
@@ -408,10 +430,16 @@ export const updateCustomer = async (req: AuthRequest, res: Response): Promise<v
     
     console.log('✅ Found existing customer:', existingCustomer.name);
 
+    // Normalize to null rather than '' - email has a unique DB constraint, so storing empty
+    // strings for customers who clear it out would collide the second time anyone does that.
+    const normalizedEmail = typeof updateData.email === 'string' && updateData.email.trim()
+      ? updateData.email.trim()
+      : (updateData.email === '' ? null : updateData.email);
+
     // Check if email is being updated and if it already exists
-    if (updateData.email && updateData.email !== existingCustomer.email) {
+    if (normalizedEmail && normalizedEmail !== existingCustomer.email) {
       const emailExists = await prisma.customer.findUnique({
-        where: { email: updateData.email }
+        where: { email: normalizedEmail }
       });      if (emailExists) {
         res.status(400).json({ error: 'Customer with this email already exists' });
         return;
@@ -422,7 +450,9 @@ export const updateCustomer = async (req: AuthRequest, res: Response): Promise<v
     // Only update fields that are provided
     Object.keys(updateData).forEach(key => {
       if (updateData[key] !== undefined && updateData[key] !== null) {
-        if (key === 'dateOfBirth' && updateData[key]) {
+        if (key === 'email') {
+          dataToUpdate[key] = normalizedEmail;
+        } else if (key === 'dateOfBirth' && updateData[key]) {
           console.log(`🔍 Processing dateOfBirth: ${updateData[key]}`);
           dataToUpdate[key] = new Date(updateData[key]);
         } else if (key === 'kycStatus' && updateData[key]) {
@@ -464,8 +494,9 @@ export const updateCustomer = async (req: AuthRequest, res: Response): Promise<v
     console.error('Request body:', req.body);
     console.error('Customer ID:', req.params.id);
     
-    if (error instanceof Error && error.message.includes('Unique constraint')) {
-      res.status(400).json({ error: 'Customer with this email already exists' });
+    const constraintMessage = uniqueConstraintMessage(error);
+    if (constraintMessage) {
+      res.status(400).json({ error: constraintMessage });
       return;
     }
     res.status(500).json({ error: 'Failed to update customer' });
@@ -486,24 +517,34 @@ export const deleteCustomer = async (req: AuthRequest, res: Response): Promise<v
     });    if (!existingCustomer) {
       res.status(404).json({ error: 'Customer not found' });
       return;
-    }// Check if customer has any accounts with balance
-    const accountsWithBalance = existingCustomer.accounts.filter((account: any) =>
-      parseFloat(account.balance.toString()) > 0
-    );    if (accountsWithBalance.length > 0) {
-      res.status(400).json({ 
-        error: 'Cannot delete customer with accounts that have a positive balance' 
-      });
-      return;
     }
 
-    // Delete customer (this will cascade delete accounts and transactions)
-    await prisma.customer.delete({
-      where: { id }
+    // Re-check balances and delete inside a single transaction to close the window
+    // between the check and the cascade-delete (a deposit landing in between could
+    // otherwise get silently destroyed).
+    await prisma.$transaction(async (tx) => {
+      const accounts = await tx.account.findMany({ where: { customerId: id } });
+      const accountsWithFunds = accounts.filter(
+        (account) => Number(account.balance) > 0 || Number(account.shareBalance || 0) > 0
+      );
+
+      if (accountsWithFunds.length > 0) {
+        throw new Error('CUSTOMER_HAS_FUNDS');
+      }
+
+      // Delete customer (this will cascade delete accounts and transactions)
+      await tx.customer.delete({ where: { id } });
     });
 
     res.json({ message: 'Customer deleted successfully' });
   } catch (error) {
     console.error('Error deleting customer:', error);
+    if (error instanceof Error && error.message === 'CUSTOMER_HAS_FUNDS') {
+      res.status(400).json({
+        error: 'Cannot delete customer with accounts that have a positive balance or share balance'
+      });
+      return;
+    }
     res.status(500).json({ error: 'Failed to delete customer' });
   }
 };

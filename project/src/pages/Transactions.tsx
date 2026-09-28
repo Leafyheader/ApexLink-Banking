@@ -43,6 +43,11 @@ const useDebounce = (value: string, delay: number) => {
 const Transactions: React.FC = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  // Separate from `accounts` (which loadData() truncates to the first 100 for table display,
+  // and re-fetches on every filter/page change) so that a filter change while the New/Edit
+  // Transaction form is populated can't silently shrink the account dropdown back down and
+  // make an existing, active account "disappear" from search.
+  const [formAccounts, setFormAccounts] = useState<Account[]>([]);
   const [allAccountsLoaded, setAllAccountsLoaded] = useState(false);
   const [totalTransactions, setTotalTransactions] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
@@ -50,9 +55,16 @@ const Transactions: React.FC = () => {
     totalTransactions: number;
     transactionsByType: {
       deposits: { count: number; amount: number };
+      sharesDeposits: { count: number; amount: number };
       withdrawals: { count: number; amount: number };
+      sharesWithdrawals: { count: number; amount: number };
       transfers: { count: number; amount: number };
+      loanRepayments?: { count: number; amount: number };
+      loanDisbursements?: { count: number; amount: number };
+      reversals?: { count: number; amount: number };
+      fees?: { count: number; amount: number };
     };
+    cashSummary?: { cashIn: number; cashOut: number; net: number };
     transactionsByStatus: {
       completed: number;
       pending: number;
@@ -130,10 +142,17 @@ const Transactions: React.FC = () => {
         }
       }
 
+      // Summary cards cover the same date range as the list (current month when no filter)
+      const statsParams = new URLSearchParams();
+      const statsFrom = params.get('dateFrom');
+      const statsTo = params.get('dateTo');
+      if (statsFrom) statsParams.append('dateFrom', statsFrom);
+      if (statsTo) statsParams.append('dateTo', statsTo);
+
       const [transactionsResponse, accountsResponse, statsResponse] = await Promise.all([
         api.get(`/transactions?${params.toString()}`),
         api.get('/accounts?limit=100'), // Load limited accounts for display
-        api.get('/transactions/stats')
+        api.get(`/transactions/stats?${statsParams.toString()}`)
       ]);
 
       setTransactions(transactionsResponse.data.transactions || []);
@@ -155,7 +174,7 @@ const Transactions: React.FC = () => {
     
     try {
       const response = await api.get('/accounts?limit=10000'); // Load all accounts
-      setAccounts(response.data.accounts || []);
+      setFormAccounts(response.data.accounts || []);
       setAllAccountsLoaded(true);
     } catch (error) {
       console.error('Error loading all accounts:', error);
@@ -203,16 +222,18 @@ const Transactions: React.FC = () => {
   // Badge variants for transaction type
   const getTypeVariant = (type: string, description?: string): 'primary' | 'secondary' | 'warning' | 'success' | 'danger' => {
     // Special handling for withdrawal charges
-    if (type === 'withdrawal' && description === 'withdrawal charge') {
+    if ((type === 'withdrawal' || type === 'withdrawal-shares') && description === 'withdrawal charge') {
       return 'danger';
     }
-    
+
     switch (type) {
       case 'deposit':
         return 'primary';
       case 'deposit-shares':
         return 'primary';
       case 'withdrawal':
+        return 'secondary';
+      case 'withdrawal-shares':
         return 'secondary';
       case 'transfer':
         return 'warning';
@@ -225,10 +246,10 @@ const Transactions: React.FC = () => {
   // Get transaction type icon
   const getTypeIcon = (type: string, description?: string) => {
     // Special handling for withdrawal charges
-    if (type === 'withdrawal' && description === 'withdrawal charge') {
+    if ((type === 'withdrawal' || type === 'withdrawal-shares') && description === 'withdrawal charge') {
       return <ArrowDownCircle size={16} className="text-orange-600" />;
     }
-    
+
     switch (type) {
       case 'deposit':
         return <ArrowUpCircle size={16} className="text-green-600" />;
@@ -236,6 +257,8 @@ const Transactions: React.FC = () => {
         return <ArrowUpCircle size={16} className="text-purple-600" />;
       case 'withdrawal':
         return <ArrowDownCircle size={16} className="text-red-600" />;
+      case 'withdrawal-shares':
+        return <ArrowDownCircle size={16} className="text-purple-600" />;
       case 'transfer':
         return <ArrowLeftRight size={16} className="text-blue-600" />;
       case 'loan-repayment':
@@ -261,6 +284,11 @@ const Transactions: React.FC = () => {
       case 'withdrawal':
         return {
           color: 'text-red-600',
+          sign: '-',
+        };
+      case 'withdrawal-shares':
+        return {
+          color: 'text-purple-600',
           sign: '-',
         };
       case 'transfer':
@@ -306,15 +334,16 @@ const Transactions: React.FC = () => {
   const handleAddTransaction = async (data: Partial<Transaction>) => {
     try {
       setIsLoading(true);
-      setError(null);      // Check if this is a withdrawal or transfer that needs authorization
-      if (data.type === 'withdrawal' || data.type === 'transfer') {
+      setError(null);      // Check if this is a withdrawal, shares withdrawal, or transfer that needs authorization
+      if (data.type === 'withdrawal' || data.type === 'withdrawal-shares' || data.type === 'transfer') {
         // For transfers, get the destination account details
-        let toAccountNumber, toCustomerName;
+        let toAccountId, toAccountNumber, toCustomerName;
         if (data.type === 'transfer') {
           const transferData = data as Partial<Transaction> & { toAccountId?: string };
           if (transferData.toAccountId) {
-            const toAccount = accounts.find(a => a.id === transferData.toAccountId);
+            const toAccount = formAccounts.find(a => a.id === transferData.toAccountId);
             if (toAccount) {
+              toAccountId = transferData.toAccountId;
               toAccountNumber = toAccount.accountNumber;
               toCustomerName = toAccount.customerName;
             }
@@ -325,28 +354,34 @@ const Transactions: React.FC = () => {
         const authData = {
           accountId: data.accountId!,
           amount: data.amount!,
-          type: data.type as 'withdrawal' | 'transfer',
+          type: data.type as 'withdrawal' | 'transfer' | 'withdrawal-shares',
           description: data.description || `${data.type} request`,
           reference: data.reference || `${data.type.toUpperCase()}-${Date.now()}`,
           ...(data.type === 'transfer' && {
+            toAccountId,
             toAccountNumber,
             toCustomerName
           })
         };
 
         const response = await withdrawalAuthorizationApi.createWithdrawalAuthorization(authData);
-        
+
         setIsAddModalOpen(false);
-        
+
         // Show success message for authorization request
-          alert(
-          `${data.type === 'withdrawal' ? 'Withdrawal' : 'Transfer'} authorization request submitted successfully! ✅\n\n` +
+        const requestLabel = data.type === 'withdrawal'
+          ? 'Withdrawal'
+          : data.type === 'withdrawal-shares'
+            ? 'Shares withdrawal'
+            : 'Transfer';
+        alert(
+          `${requestLabel} authorization request submitted successfully! ✅\n\n` +
           `Request ID: ${response.id}\n` +
           `Amount: ${formatCurrency(data.amount || 0, 'GHS', 'en-GH', 2)}\n` +
           `Status: Pending Approval\n\n` +
           `The request has been sent for approval and will appear in the Withdrawal Authorization section.`
         );
-        
+
         // Don't reload transaction data since this creates an authorization request, not a transaction
         return;
       }
@@ -483,9 +518,9 @@ const Transactions: React.FC = () => {
 
       {/* Error State */}
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-md p-4 flex items-center gap-3">
+        <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4 flex items-center gap-3">
           <AlertCircle className="w-5 h-5 text-red-600" />
-          <span className="text-red-700">{error}</span>
+          <span className="text-red-700 dark:text-red-300">{error}</span>
           <Button
             variant="ghost"
             size="sm"
@@ -500,8 +535,8 @@ const Transactions: React.FC = () => {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
-          <p className="text-gray-600">Manage and track all financial transactions</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Transactions</h1>
+          <p className="text-gray-600 dark:text-dark-text">Manage and track all financial transactions</p>
         </div>
         <div className="flex gap-3">
           <Button
@@ -524,16 +559,32 @@ const Transactions: React.FC = () => {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
-              <div className="p-2 bg-green-100 rounded-lg">
+              <div className="p-2 bg-purple-100 rounded-lg flex-shrink-0">
+                <ArrowUpCircle className="h-6 w-6 text-purple-600" />
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Shares Deposits</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-dark-text whitespace-nowrap">
+                  {formatCurrency(transactionStats?.transactionsByType?.sharesDeposits?.amount || 0, 'GHS', 'en-GH', 2)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-green-100 rounded-lg flex-shrink-0">
                 <ArrowUpCircle className="h-6 w-6 text-green-600" />
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Deposits</p>
-                <p className="text-2xl font-semibold text-gray-900">
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Savings Deposits</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-dark-text whitespace-nowrap">
                   {formatCurrency(transactionStats?.transactionsByType?.deposits?.amount || 0, 'GHS', 'en-GH', 2)}
                 </p>
               </div>
@@ -544,12 +595,28 @@ const Transactions: React.FC = () => {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
-              <div className="p-2 bg-red-100 rounded-lg">
+              <div className="p-2 bg-orange-100 rounded-lg flex-shrink-0">
+                <ArrowDownCircle className="h-6 w-6 text-orange-600" />
+              </div>
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Shares Withdrawal</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-dark-text whitespace-nowrap">
+                  {formatCurrency(transactionStats?.transactionsByType?.sharesWithdrawals?.amount || 0, 'GHS', 'en-GH', 2)}
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-6">
+            <div className="flex items-center">
+              <div className="p-2 bg-red-100 rounded-lg flex-shrink-0">
                 <ArrowDownCircle className="h-6 w-6 text-red-600" />
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Withdrawals</p>
-                <p className="text-2xl font-semibold text-gray-900">
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Savings Withdrawal</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-dark-text whitespace-nowrap">
                   {formatCurrency(transactionStats?.transactionsByType?.withdrawals?.amount || 0, 'GHS', 'en-GH', 2)}
                 </p>
               </div>
@@ -560,33 +627,55 @@ const Transactions: React.FC = () => {
         <Card>
           <CardContent className="p-6">
             <div className="flex items-center">
-              <div className="p-2 bg-blue-100 rounded-lg">
+              <div className="p-2 bg-blue-100 rounded-lg flex-shrink-0">
                 <ArrowLeftRight className="h-6 w-6 text-blue-600" />
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Transfers</p>
-                <p className="text-2xl font-semibold text-gray-900">
+              <div className="ml-4 min-w-0">
+                <p className="text-sm font-medium text-gray-500 dark:text-gray-400">Total Transfers</p>
+                <p className="text-lg font-semibold text-gray-900 dark:text-dark-text whitespace-nowrap">
                   {formatCurrency(transactionStats?.transactionsByType?.transfers?.amount || 0, 'GHS', 'en-GH', 2)}
                 </p>
               </div>
             </div>
           </CardContent>
         </Card>
+      </div>
 
+      {/* Expected cash drawer movement for the selected period - compare with the physical count */}
+      {transactionStats?.cashSummary && (
         <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center">
-              <div className="p-2 bg-purple-100 rounded-lg">
-                <ArrowLeftRight className="h-6 w-6 text-purple-600" />
+          <CardContent className="p-4">
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Cash in: </span>
+                <span className="font-semibold text-gray-900 dark:text-dark-text">
+                  {formatCurrency(transactionStats.cashSummary.cashIn, 'GHS', 'en-GH', 2)}
+                </span>
+                <span className="text-gray-500 dark:text-gray-400"> (deposits, shares, loan repayments {formatCurrency(transactionStats.transactionsByType.loanRepayments?.amount || 0, 'GHS', 'en-GH', 2)}, reversals {formatCurrency(transactionStats.transactionsByType.reversals?.amount || 0, 'GHS', 'en-GH', 2)})</span>
               </div>
-              <div className="ml-4">
-                <p className="text-sm font-medium text-gray-500">Total Transactions</p>
-                <p className="text-2xl font-semibold text-gray-900">{transactionStats?.totalTransactions || 0}</p>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Cash out: </span>
+                <span className="font-semibold text-gray-900 dark:text-dark-text">
+                  {formatCurrency(transactionStats.cashSummary.cashOut, 'GHS', 'en-GH', 2)}
+                </span>
+                <span className="text-gray-500 dark:text-gray-400"> (withdrawals, shares, loan payouts {formatCurrency(transactionStats.transactionsByType.loanDisbursements?.amount || 0, 'GHS', 'en-GH', 2)})</span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Net cash: </span>
+                <span className="font-semibold text-gray-900 dark:text-dark-text">
+                  {formatCurrency(transactionStats.cashSummary.net, 'GHS', 'en-GH', 2)}
+                </span>
+              </div>
+              <div>
+                <span className="text-gray-500 dark:text-gray-400">Fees charged (deducted from balances, not cash): </span>
+                <span className="font-semibold text-gray-900 dark:text-dark-text">
+                  {formatCurrency(transactionStats.transactionsByType.fees?.amount || 0, 'GHS', 'en-GH', 2)}
+                </span>
               </div>
             </div>
           </CardContent>
         </Card>
-      </div>
+      )}
 
       {/* Filters */}
       <Card>
@@ -640,6 +729,7 @@ const Transactions: React.FC = () => {
                 { value: 'deposit', label: 'Deposits' },
                 { value: 'deposit-shares', label: 'Shares Deposits' },
                 { value: 'withdrawal', label: 'Withdrawals' },
+                { value: 'withdrawal-shares', label: 'Shares Withdrawals' },
                 { value: 'transfer', label: 'Transfers' },
                 { value: 'loan-repayment', label: 'Loan Repayments' },
               ]}
@@ -662,27 +752,27 @@ const Transactions: React.FC = () => {
           
           {/* Items per page selector */}
           <div className="flex items-center gap-2 mt-4">
-            <span className="text-sm text-gray-600">Show:</span>
-            <select 
-              value={itemsPerPage} 
+            <span className="text-sm text-gray-600 dark:text-gray-300">Show:</span>
+            <select
+              value={itemsPerPage}
               onChange={(e) => {
                 setItemsPerPage(Number(e.target.value));
                 setCurrentPage(1);
               }}
-              className="px-3 py-1 border border-gray-300 rounded-md text-sm"
+              className="px-3 py-1 border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded-md text-sm"
             >
               <option value={10}>10</option>
               <option value={25}>25</option>
               <option value={50}>50</option>
               <option value={100}>100</option>
             </select>
-            <span className="text-sm text-gray-600">per page</span>
+            <span className="text-sm text-gray-600 dark:text-gray-300">per page</span>
           </div>
         </CardContent>
       </Card>
 
       {/* Transactions Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="bg-white dark:bg-dark-surface rounded-lg shadow overflow-hidden dark:border dark:border-dark-border">
         <Table>
           <TableHeader>
             <TableRow>
@@ -704,29 +794,31 @@ const Transactions: React.FC = () => {
                     <div className="flex items-center">
                       {getTypeIcon(transaction.type, transaction.description)}
                       <div className="ml-3">
-                        <div className="text-sm font-medium text-gray-900">
+                        <div className="text-sm font-medium text-gray-900 dark:text-dark-text">
                           {transaction.description || 'No description'}
                         </div>
-                        <div className="text-sm text-gray-500">ID: {transaction.id}</div>
+                        <div className="text-sm text-gray-500 dark:text-gray-400">ID: {transaction.id}</div>
                       </div>
                     </div>
                   </TableCell>
                   <TableCell>
                     <div>
-                      <div className="text-sm font-medium text-gray-900">
+                      <div className="text-sm font-medium text-gray-900 dark:text-dark-text">
                         {transaction.accountNumber || account?.accountNumber || 'Unknown Account'}
                       </div>
-                      <div className="text-sm text-gray-500">
-                        {account?.customer?.name || account?.customerName || 'Unknown Customer'}
+                      <div className="text-sm text-gray-500 dark:text-gray-400">
+                        {transaction.customerName || account?.customer?.name || account?.customerName || 'Unknown Customer'}
                       </div>
                     </div>
                   </TableCell>                  <TableCell>
                     <Badge variant={getTypeVariant(transaction.type, transaction.description)}>
-                      {transaction.description === 'withdrawal charge' 
-                        ? 'Withdrawal Charge' 
+                      {transaction.description === 'withdrawal charge'
+                        ? 'Withdrawal Charge'
                         : transaction.type === 'deposit-shares'
                           ? 'Shares Deposit'
-                          : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
+                          : transaction.type === 'withdrawal-shares'
+                            ? 'Shares Withdrawal'
+                            : transaction.type.charAt(0).toUpperCase() + transaction.type.slice(1)}
                     </Badge>
                   </TableCell>
                   <TableCell className={getAmountDisplay(transaction.type).color}>
@@ -739,10 +831,10 @@ const Transactions: React.FC = () => {
                       {transaction.status.charAt(0).toUpperCase() + transaction.status.slice(1)}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-sm text-gray-500">
+                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">
                     {formatDateTime(transaction.date)}
                   </TableCell>
-                  <TableCell className="text-sm text-gray-500">
+                  <TableCell className="text-sm text-gray-500 dark:text-gray-400">
                     {transaction.reference || 'N/A'}
                   </TableCell>
                   <TableCell>
@@ -771,7 +863,7 @@ const Transactions: React.FC = () => {
             })}
             {transactions.length === 0 && (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-6 text-gray-500">
+                <TableCell colSpan={8} className="text-center py-6 text-gray-500 dark:text-gray-400">
                   {searchInput || statusFilter || typeFilter || dateFilter
                     ? 'No transactions found matching your filters'
                     : 'No transactions found'}
@@ -784,8 +876,8 @@ const Transactions: React.FC = () => {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 p-4 bg-gray-50 rounded-lg border">
-          <div className="text-sm text-gray-700">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-dark-border">
+          <div className="text-sm text-gray-700 dark:text-dark-text">
             Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalTransactions)} of {totalTransactions} transactions
           </div>
           
@@ -840,7 +932,7 @@ const Transactions: React.FC = () => {
               return pages.map((page, index) => {
                 if (page === -1 || page === -2) {
                   return (
-                    <span key={`ellipsis-${index}`} className="px-3 py-1 text-gray-500">
+                    <span key={`ellipsis-${index}`} className="px-3 py-1 text-gray-500 dark:text-gray-400">
                       ...
                     </span>
                   );
@@ -870,8 +962,8 @@ const Transactions: React.FC = () => {
             
             {/* Go to page input for large datasets */}
             {totalPages > 10 && (
-              <div className="flex items-center space-x-2 ml-4 pl-4 border-l border-gray-300">
-                <span className="text-sm text-gray-600">Go to:</span>
+              <div className="flex items-center space-x-2 ml-4 pl-4 border-l border-gray-300 dark:border-dark-border">
+                <span className="text-sm text-gray-600 dark:text-gray-300">Go to:</span>
                 <input
                   type="number"
                   min="1"
@@ -883,19 +975,19 @@ const Transactions: React.FC = () => {
                       setCurrentPage(page);
                     }
                   }}
-                  className="w-16 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-16 px-2 py-1 text-sm border border-gray-300 dark:border-dark-border dark:bg-dark-bg dark:text-dark-text rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <span className="text-sm text-gray-600">of {totalPages}</span>
+                <span className="text-sm text-gray-600 dark:text-gray-300">of {totalPages}</span>
               </div>
             )}
           </div>
         </div>
       )}
-      
+
       {/* Show pagination info even with single page for transparency */}
       {totalPages === 1 && totalTransactions > 0 && (
-        <div className="flex items-center justify-center mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-          <div className="text-sm text-blue-700">
+        <div className="flex items-center justify-center mt-4 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
+          <div className="text-sm text-blue-700 dark:text-blue-300">
             Showing all {totalTransactions} transactions on 1 page
           </div>
         </div>
@@ -910,7 +1002,7 @@ const Transactions: React.FC = () => {
         preventClickOutsideClose={true}
       >
         <TransactionForm
-          accounts={accounts}
+          accounts={formAccounts}
           onSubmit={handleAddTransaction}
           onCancel={() => setIsAddModalOpen(false)}
           isLoading={isLoading}
@@ -927,32 +1019,34 @@ const Transactions: React.FC = () => {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Transaction ID</label>
-                <p className="mt-1 text-sm text-gray-900">{selectedTransaction.id}</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Transaction ID</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-dark-text">{selectedTransaction.id}</p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Account Number</label>
-                <p className="mt-1 text-sm text-gray-900">{selectedTransaction.accountNumber || 'N/A'}</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Account Number</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-dark-text">{selectedTransaction.accountNumber || 'N/A'}</p>
               </div>              <div>
-                <label className="block text-sm font-medium text-gray-700">Type</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Type</label>
                 <div className="mt-1">
                   <Badge variant={getTypeVariant(selectedTransaction.type, selectedTransaction.description)}>
-                    {selectedTransaction.description === 'withdrawal charge' 
-                      ? 'Withdrawal Charge' 
+                    {selectedTransaction.description === 'withdrawal charge'
+                      ? 'Withdrawal Charge'
                       : selectedTransaction.type === 'deposit-shares'
                         ? 'Shares Deposit'
-                        : selectedTransaction.type.charAt(0).toUpperCase() + selectedTransaction.type.slice(1)}
+                        : selectedTransaction.type === 'withdrawal-shares'
+                          ? 'Shares Withdrawal'
+                          : selectedTransaction.type.charAt(0).toUpperCase() + selectedTransaction.type.slice(1)}
                   </Badge>
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Amount</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Amount</label>
                 <p className={`mt-1 text-sm font-medium ${getAmountDisplay(selectedTransaction.type).color}`}>
                   {getAmountDisplay(selectedTransaction.type).sign}{formatCurrency(selectedTransaction.amount, 'GHS', 'en-GH', 2)}
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Status</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Status</label>
                 <div className="mt-1">
                   <Badge variant={getStatusVariant(selectedTransaction.status)}>
                     {selectedTransaction.status.charAt(0).toUpperCase() + selectedTransaction.status.slice(1)}
@@ -960,24 +1054,24 @@ const Transactions: React.FC = () => {
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700">Date</label>
-                <p className="mt-1 text-sm text-gray-900">{formatDateTime(selectedTransaction.date)}</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Date</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-dark-text">{formatDateTime(selectedTransaction.date)}</p>
               </div>
               <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Reference</label>
-                <p className="mt-1 text-sm text-gray-900">{selectedTransaction.reference || 'N/A'}</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Reference</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-dark-text">{selectedTransaction.reference || 'N/A'}</p>
               </div>
               <div className="col-span-2">
-                <label className="block text-sm font-medium text-gray-700">Description</label>
-                <p className="mt-1 text-sm text-gray-900">{selectedTransaction.description || 'No description'}</p>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text">Description</label>
+                <p className="mt-1 text-sm text-gray-900 dark:text-dark-text">{selectedTransaction.description || 'No description'}</p>
               </div>
             </div>
 
             {/* Enhanced Loan Repayment Details */}
             {selectedTransaction.type === 'loan-repayment' && selectedTransaction.repaymentDetails && (
-              <div className="mt-6 pt-6 border-t border-gray-200">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Loan Repayment Breakdown</h3>
-                
+              <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
+                <h3 className="text-lg font-medium text-gray-900 dark:text-dark-text mb-4">Loan Repayment Breakdown</h3>
+
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Payment Breakdown */}
                   <Card>
@@ -986,26 +1080,26 @@ const Transactions: React.FC = () => {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Interest Paid:</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Interest Paid:</span>
                         <span className="text-sm font-medium text-green-600">
                           {formatCurrency(selectedTransaction.repaymentDetails.breakdown.interestPaid, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Guarantor Reimbursement:</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Guarantor Reimbursement:</span>
                         <span className="text-sm font-medium text-blue-600">
                           {formatCurrency(selectedTransaction.repaymentDetails.breakdown.guarantorReimbursement, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Loan Reduction:</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Loan Reduction:</span>
                         <span className="text-sm font-medium text-purple-600">
                           {formatCurrency(selectedTransaction.repaymentDetails.breakdown.loanReduction, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
-                      <div className="flex justify-between border-t pt-2">
-                        <span className="text-sm font-medium text-gray-900">Total Payment:</span>
-                        <span className="text-sm font-medium text-gray-900">
+                      <div className="flex justify-between border-t dark:border-dark-border pt-2">
+                        <span className="text-sm font-medium text-gray-900 dark:text-dark-text">Total Payment:</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
                           {formatCurrency(selectedTransaction.repaymentDetails.totalRepayment, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
@@ -1019,25 +1113,25 @@ const Transactions: React.FC = () => {
                     </CardHeader>
                     <CardContent className="space-y-3">
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Total Paid:</span>
-                        <span className="text-sm font-medium">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Total Paid:</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
                           {formatCurrency(selectedTransaction.repaymentDetails.loanState.totalPaid, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Remaining Balance:</span>
-                        <span className="text-sm font-medium">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Remaining Balance:</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
                           {formatCurrency(selectedTransaction.repaymentDetails.remainingBalance, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Principal Remaining:</span>
-                        <span className="text-sm font-medium">
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Principal Remaining:</span>
+                        <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
                           {formatCurrency(selectedTransaction.repaymentDetails.loanState.principalRemaining, 'GHS', 'en-GH', 2)}
                         </span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-sm text-gray-600">Status:</span>
+                        <span className="text-sm text-gray-600 dark:text-gray-300">Status:</span>
                         <Badge variant={selectedTransaction.repaymentDetails.isCompleted ? 'success' : 'warning'}>
                           {selectedTransaction.repaymentDetails.isCompleted ? 'Completed' : 'Active'}
                         </Badge>
@@ -1046,7 +1140,7 @@ const Transactions: React.FC = () => {
                   </Card>
 
                   {/* Guarantor Disbursements */}
-                  {selectedTransaction.repaymentDetails.disbursements && 
+                  {selectedTransaction.repaymentDetails.disbursements &&
                    selectedTransaction.repaymentDetails.disbursements.length > 0 && (
                     <div className="col-span-1 md:col-span-2">
                       <Card>
@@ -1056,11 +1150,11 @@ const Transactions: React.FC = () => {
                         <CardContent>
                           <div className="space-y-2">
                             {selectedTransaction.repaymentDetails.disbursements.map((disbursement, index: number) => (
-                              <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-b-0">
+                              <div key={index} className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-700 last:border-b-0">
                                 <div>
-                                  <span className="text-sm font-medium">{disbursement.guarantorName}</span>
-                                  <span className="text-xs text-gray-500 ml-2">({disbursement.accountNumber})</span>
-                                  <span className="text-xs text-gray-500 ml-2">{disbursement.percentage}%</span>
+                                  <span className="text-sm font-medium text-gray-900 dark:text-dark-text">{disbursement.guarantorName}</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">({disbursement.accountNumber})</span>
+                                  <span className="text-xs text-gray-500 dark:text-gray-400 ml-2">{disbursement.percentage}%</span>
                                 </div>
                                 <span className="text-sm font-medium text-blue-600">
                                   {formatCurrency(disbursement.amount, 'GHS', 'en-GH', 2)}
@@ -1088,7 +1182,7 @@ const Transactions: React.FC = () => {
       >
         {selectedTransaction && (
           <TransactionForm
-            accounts={accounts}
+            accounts={formAccounts}
             onSubmit={handleEditSubmit}
             onCancel={() => {
               setIsEditModalOpen(false);

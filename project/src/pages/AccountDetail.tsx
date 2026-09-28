@@ -68,8 +68,8 @@ const AccountDetail: React.FC = () => {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
         <AlertCircle className="w-12 h-12 text-red-600 mb-4" />
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Error</h1>
-        <p className="text-lg text-gray-600 mb-8">{error}</p>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-dark-text mb-4">Error</h1>
+        <p className="text-lg text-gray-600 dark:text-gray-300 mb-8">{error}</p>
         <div className="flex gap-4">
           <Button onClick={fetchAccount}>Try Again</Button>
           <Button variant="outline" onClick={() => navigate('/accounts')}>
@@ -83,8 +83,8 @@ const AccountDetail: React.FC = () => {
   if (!account) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh]">
-        <h1 className="text-2xl font-bold text-gray-800 mb-4">Account Not Found</h1>
-        <p className="text-gray-600 mb-8">The account you are looking for doesn't exist.</p>
+        <h1 className="text-2xl font-bold text-gray-800 dark:text-dark-text mb-4">Account Not Found</h1>
+        <p className="text-gray-600 dark:text-gray-300 mb-8">The account you are looking for doesn't exist.</p>
         <Button onClick={() => navigate('/accounts')}>
           Back to Accounts
         </Button>
@@ -121,7 +121,14 @@ const AccountDetail: React.FC = () => {
       default:
         return 'primary';
     }
-  };// Handle freeze account
+  };
+
+  // Extracts the backend's specific message (e.g. "Cannot close account with a nonzero
+  // balance...") instead of a generic string that hides exactly why the action was rejected.
+  const getActionErrorMessage = (err: unknown, fallback: string): string =>
+    (err as { response?: { data?: { message?: string } } }).response?.data?.message || fallback;
+
+  // Handle freeze account
   const handleFreezeAccount = async () => {    try {
       setActionLoading(true);
       const response = await api.patch(`/accounts/${account.id}/status`, { status: 'FROZEN' });
@@ -130,7 +137,7 @@ const AccountDetail: React.FC = () => {
       setIsFreezeModalOpen(false);
     } catch (err) {
       console.error('Error freezing account:', err);
-      setError('Failed to freeze account. Please try again.');
+      setError(getActionErrorMessage(err, 'Failed to freeze account. Please try again.'));
     } finally {
       setActionLoading(false);
     }
@@ -144,7 +151,7 @@ const AccountDetail: React.FC = () => {
       setIsCloseModalOpen(false);
     } catch (err) {
       console.error('Error closing account:', err);
-      setError('Failed to close account. Please try again.');
+      setError(getActionErrorMessage(err, 'Failed to close account. Please try again.'));
     } finally {
       setActionLoading(false);
     }
@@ -159,16 +166,57 @@ const AccountDetail: React.FC = () => {
       setAccount(updatedAccount);
     } catch (err) {
       console.error('Error activating account:', err);
-      setError('Failed to activate account. Please try again.');
+      setError(getActionErrorMessage(err, 'Failed to activate account. Please try again.'));
     } finally {
       setActionLoading(false);
     }
   };
 
-  // Handle export statement
+  // Turns 'LOAN_REPAYMENT' into 'Loan Repayment' for a readable CSV cell.
+  const formatTransactionTypeLabel = (type: string): string =>
+    type.toLowerCase().split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
+
+  const escapeCsvCell = (value: string): string =>
+    /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+
+  // Generates a real CSV of this account's available transaction history and downloads it -
+  // this used to just alert() a fake success message without producing anything at all.
+  // GET /accounts/:id only returns the 10 most recent transactions, so that's the honest scope
+  // of what this can cover without a dedicated statement endpoint.
   const handleExportStatement = () => {
-    // Simulate PDF generation
-    alert('Statement exported successfully!');
+    const rows = account.transactions || [];
+
+    if (rows.length === 0) {
+      alert('No transactions available to export for this account yet.');
+      return;
+    }
+
+    const header = ['Date', 'Type', 'Amount', 'Status', 'Reference', 'Description'];
+    const lines = [
+      header.join(','),
+      ...rows.map(tx => [
+        formatDate(tx.date),
+        formatTransactionTypeLabel(tx.type),
+        tx.amount.toString(),
+        tx.status,
+        tx.reference || '',
+        tx.description || ''
+      ].map(cell => escapeCsvCell(String(cell))).join(','))
+    ];
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `statement-${account.accountNumber}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    if (rows.length >= 10) {
+      alert('Exported the 10 most recent transactions. For a full history export, contact an administrator.');
+    }
   };
 
   return (
@@ -185,8 +233,8 @@ const AccountDetail: React.FC = () => {
             Back to Accounts
           </Button>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Account Details</h1>
-            <p className="text-gray-600">{account.accountNumber}</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-dark-text">Account Details</h1>
+            <p className="text-gray-600 dark:text-dark-text">{account.accountNumber}</p>
           </div>
         </div>
         <div className="flex gap-3">
@@ -202,7 +250,7 @@ const AccountDetail: React.FC = () => {
             variant="outline"
             size="sm"
             leftIcon={<History size={16} />}
-            onClick={() => alert('Audit trail feature coming soon!')}
+            onClick={() => navigate(`/audit?search=${account.id}`)}
           >
             Audit Trail
           </Button>          <Button
@@ -220,44 +268,44 @@ const AccountDetail: React.FC = () => {
         <CardHeader>
           <div className="flex items-center gap-2">
             <User className="h-5 w-5 text-blue-600" />
-            <h2 className="text-lg font-semibold">Basic Account Information</h2>
+            <h2 className="text-lg font-semibold dark:text-dark-text">Basic Account Information</h2>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Account Number</h4>
-              <p className="text-lg font-semibold text-gray-900">{account.accountNumber}</p>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Account Number</h4>
+              <p className="text-lg font-semibold text-gray-900 dark:text-dark-text">{account.accountNumber}</p>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Account Name</h4>
-              <p className="text-lg text-gray-900">{account.customerName}</p>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Account Name</h4>
+              <p className="text-lg text-gray-900 dark:text-dark-text">{account.customerName}</p>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Account Type</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Account Type</h4>
               <Badge variant={getTypeVariant(account.type)}>
                 {account.type.charAt(0).toUpperCase() + account.type.slice(1)}
               </Badge>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Account Status</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Account Status</h4>
               <Badge variant={getStatusVariant(account.status)}>
                 {account.status.charAt(0).toUpperCase() + account.status.slice(1)}
               </Badge>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Currency</h4>
-              <p className="text-lg text-gray-900">GHS</p>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Currency</h4>
+              <p className="text-lg text-gray-900 dark:text-dark-text">GHS</p>
             </div>
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Date Opened</h4>
-              <p className="text-lg text-gray-900">{formatDate(account.dateOpened)}</p>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Date Opened</h4>
+              <p className="text-lg text-gray-900 dark:text-dark-text">{formatDate(account.dateOpened)}</p>
             </div>
             <div className="md:col-span-2 lg:col-span-3">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Branch/Region</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Branch/Region</h4>
               <div className="flex items-center gap-2">
-                <Building className="h-4 w-4 text-gray-500" />
-                <p className="text-lg text-gray-900">{account.branch}</p>
+                <Building className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <p className="text-lg text-gray-900 dark:text-dark-text">{account.branch}</p>
               </div>            </div>
           </div>
         </CardContent>
@@ -268,40 +316,40 @@ const AccountDetail: React.FC = () => {
         <CardHeader>
           <div className="flex items-center gap-2">
             <DollarSign className="h-5 w-5 text-green-600" />
-            <h2 className="text-lg font-semibold">Financial Details</h2>
+            <h2 className="text-lg font-semibold dark:text-dark-text">Financial Details</h2>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Current Balance</h4>
+            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Current Balance</h4>
               <p className="text-2xl font-bold text-green-600">{formatCurrency(account.balance, 'GHS', 'en-GH', 2)}</p>
             </div>
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Available Balance</h4>
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Available Balance</h4>
               <p className="text-2xl font-bold text-blue-600">{formatCurrency(account.availableBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
-            <div className="bg-purple-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Ledger Balance</h4>
+            <div className="bg-purple-50 dark:bg-purple-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Ledger Balance</h4>
               <p className="text-2xl font-bold text-purple-600">{formatCurrency(account.ledgerBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
-            <div className="bg-indigo-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Shares Balance</h4>
+            <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Shares Balance</h4>
               <p className="text-2xl font-bold text-indigo-600">{formatCurrency(account.shareBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
-            <div className="bg-cyan-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Shares Available Balance</h4>
+            <div className="bg-cyan-50 dark:bg-cyan-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Shares Available Balance</h4>
               <p className="text-2xl font-bold text-cyan-600">{formatCurrency(account.sharesAvailableBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>
             {account.overdraftLimit && account.overdraftLimit > 0 && (
               <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Overdraft Limit</h4>
-                <p className="text-lg text-gray-900">{formatCurrency(account.overdraftLimit, 'GHS', 'en-GH', 2)}</p>
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Overdraft Limit</h4>
+                <p className="text-lg text-gray-900 dark:text-dark-text">{formatCurrency(account.overdraftLimit, 'GHS', 'en-GH', 2)}</p>
               </div>
             )}
             {account.accruedInterest && account.accruedInterest > 0 && (
-              <div className="bg-yellow-50 p-4 rounded-lg">
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Accrued Interest</h4>
+              <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-lg">
+                <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Accrued Interest</h4>
                 <div className="flex items-center gap-2">
                   <TrendingUp className="h-4 w-4 text-yellow-600" />
                   <p className="text-lg font-semibold text-yellow-600">{formatCurrency(account.accruedInterest, 'GHS', 'en-GH', 2)}</p>
@@ -309,8 +357,8 @@ const AccountDetail: React.FC = () => {
               </div>
             )}
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Minimum Balance Requirement</h4>
-              <p className="text-lg text-gray-900">{formatCurrency(account.minimumBalance || 0, 'GHS', 'en-GH', 2)}</p>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Minimum Balance Requirement</h4>
+              <p className="text-lg text-gray-900 dark:text-dark-text">{formatCurrency(account.minimumBalance || 0, 'GHS', 'en-GH', 2)}</p>
             </div>          </div>
         </CardContent>
       </Card>
@@ -320,40 +368,40 @@ const AccountDetail: React.FC = () => {
         <CardHeader>
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-orange-600" />
-            <h2 className="text-lg font-semibold">Transaction Summary</h2>
+            <h2 className="text-lg font-semibold dark:text-dark-text">Transaction Summary</h2>
           </div>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
             <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Last Transaction Date</h4>
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Last Transaction Date</h4>
               <div className="flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
-                <p className="text-lg text-gray-900">
+                <Calendar className="h-4 w-4 text-gray-500 dark:text-gray-400" />
+                <p className="text-lg text-gray-900 dark:text-dark-text">
                   {account.lastTransactionDate ? formatDate(account.lastTransactionDate) : 'No transactions'}
                 </p>
               </div>
             </div>
-            <div className="bg-green-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Last Deposit</h4>
+            <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Last Deposit</h4>
                 <p className="text-lg font-semibold text-green-600">
                 {account.lastDepositAmount ? formatCurrency(account.lastDepositAmount, 'GHS', 'en-GH', 2) : 'No deposits'}
               </p>
               {account.lastDepositDate && (
-                <p className="text-sm text-gray-500">{formatDate(account.lastDepositDate)}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{formatDate(account.lastDepositDate)}</p>
               )}
             </div>
-            <div className="bg-red-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Last Withdrawal</h4>
+            <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Last Withdrawal</h4>
               <p className="text-lg font-semibold text-red-600">
                 {account.lastWithdrawalAmount ? formatCurrency(account.lastWithdrawalAmount, 'GHS', 'en-GH', 2) : 'No withdrawals'}
               </p>
               {account.lastWithdrawalDate && (
-                <p className="text-sm text-gray-500">{formatDate(account.lastWithdrawalDate)}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">{formatDate(account.lastWithdrawalDate)}</p>
               )}
             </div>
-            <div className="bg-blue-50 p-4 rounded-lg">
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Transactions This Month</h4>
+            <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg">
+              <h4 className="text-sm font-medium text-gray-500 dark:text-gray-400 mb-2">Transactions This Month</h4>
               <p className="text-2xl font-bold text-blue-600">{account.transactionsThisMonth || 0}</p>
             </div>          </div>
         </CardContent>
@@ -364,7 +412,7 @@ const AccountDetail: React.FC = () => {
         <CardHeader>
           <div className="flex items-center gap-2">
             <CreditCard className="h-5 w-5 text-red-600" />
-            <h2 className="text-lg font-semibold">Administrative Options</h2>
+            <h2 className="text-lg font-semibold dark:text-dark-text">Administrative Options</h2>
           </div>
         </CardHeader>
         <CardContent>
@@ -410,7 +458,7 @@ const AccountDetail: React.FC = () => {
             <Button
               variant="outline"
               leftIcon={<History size={16} />}
-              onClick={() => alert('Audit trail feature coming soon!')}
+              onClick={() => navigate(`/audit?search=${account.id}`)}
             >
               View Audit Trail            </Button>
           </div>
@@ -442,8 +490,8 @@ const AccountDetail: React.FC = () => {
           </div>
         }
       >
-        <p className="text-gray-700">
-          Edit account functionality will be implemented here. This would include updating account name, 
+        <p className="text-gray-700 dark:text-dark-text">
+          Edit account functionality will be implemented here. This would include updating account name,
           overdraft limits, minimum balance requirements, and other editable fields.
         </p>
       </Modal>
@@ -472,11 +520,11 @@ const AccountDetail: React.FC = () => {
         }
       >
         <div className="space-y-4">
-          <p className="text-gray-700">
+          <p className="text-gray-700 dark:text-dark-text">
             Are you sure you want to freeze this account? The account holder will not be able to perform any transactions.
           </p>
-          <div className="bg-yellow-50 p-4 rounded-md">
-            <p className="text-sm text-yellow-700">
+          <div className="bg-yellow-50 dark:bg-yellow-900/20 p-4 rounded-md">
+            <p className="text-sm text-yellow-700 dark:text-yellow-300">
               <strong>Warning:</strong> This action will prevent all transactions on this account until it is unfrozen.
             </p>
           </div>
@@ -507,11 +555,11 @@ const AccountDetail: React.FC = () => {
         }
       >
         <div className="space-y-4">
-          <p className="text-gray-700">
+          <p className="text-gray-700 dark:text-dark-text">
             Are you sure you want to close this account? This action cannot be undone.
           </p>
-          <div className="bg-red-50 p-4 rounded-md">
-            <p className="text-sm text-red-700">
+          <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-md">
+            <p className="text-sm text-red-700 dark:text-red-300">
               <strong>Warning:</strong> Closing an account is permanent. All remaining funds should be transferred before closing.
             </p>
           </div>

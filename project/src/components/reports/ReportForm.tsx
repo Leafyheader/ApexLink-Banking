@@ -34,12 +34,12 @@ const ReportForm: React.FC<ReportFormProps> = ({
   };
 
   const handleSelectChange = (name: string) => (value: string) => {
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    
-    // If customer changes, reset the account
-    if (name === 'customerId' && prev.customerId !== value) {
-      setFormData((prev) => ({ ...prev, [name]: value, accountId: '' }));
-    }
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      // If customer changes, reset the account
+      ...(name === 'customerId' && prev.customerId !== value ? { accountId: '' } : {})
+    }));
   };
 
   const handleSubmit = (e: React.FormEvent) => {

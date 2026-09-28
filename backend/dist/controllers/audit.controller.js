@@ -31,61 +31,64 @@ const getAuditEvents = async (req, res) => {
         const whereClauses = [];
         const params = [];
         if (search) {
-            whereClauses.push('(requestId LIKE ? OR reference LIKE ? OR route LIKE ? OR entityId LIKE ? OR actorUserId LIKE ?)');
+            whereClauses.push('(ae.requestId LIKE ? OR ae.reference LIKE ? OR ae.route LIKE ? OR ae.entityId LIKE ? OR ae.actorUserId LIKE ? OR u.name LIKE ? OR u.username LIKE ?)');
             const wildcard = `%${search}%`;
-            params.push(wildcard, wildcard, wildcard, wildcard, wildcard);
+            params.push(wildcard, wildcard, wildcard, wildcard, wildcard, wildcard, wildcard);
         }
         if (outcome) {
-            whereClauses.push('outcome = ?');
+            whereClauses.push('ae.outcome = ?');
             params.push(outcome);
         }
         if (action) {
-            whereClauses.push('action = ?');
+            whereClauses.push('ae.action = ?');
             params.push(action);
         }
         if (entityType) {
-            whereClauses.push('entityType = ?');
+            whereClauses.push('ae.entityType = ?');
             params.push(entityType);
         }
         if (actorRole) {
-            whereClauses.push('actorRole = ?');
+            whereClauses.push('ae.actorRole = ?');
             params.push(actorRole);
         }
         if (dateFrom) {
-            whereClauses.push('createdAt >= ?');
+            whereClauses.push('ae.createdAt >= ?');
             params.push(dateFrom);
         }
         if (dateTo) {
-            whereClauses.push('createdAt <= ?');
+            whereClauses.push('ae.createdAt <= ?');
             params.push(dateTo);
         }
         const whereSql = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : '';
-        const countRows = await prisma.$queryRawUnsafe(`SELECT COUNT(*) as total FROM AuditEvent ${whereSql}`, ...params);
+        const countRows = await prisma.$queryRawUnsafe(`SELECT COUNT(*) as total FROM AuditEvent ae LEFT JOIN User u ON u.id = ae.actorUserId ${whereSql}`, ...params);
         const events = await prisma.$queryRawUnsafe(`
         SELECT
-          id,
-          eventType,
-          entityType,
-          entityId,
-          action,
-          outcome,
-          actorUserId,
-          actorRole,
-          requestId,
-          method,
-          route,
-          reference,
-          ipAddress,
-          userAgent,
-          beforeData,
-          afterData,
-          metadata,
-          prevHash,
-          eventHash,
-          createdAt
-        FROM AuditEvent
+          ae.id,
+          ae.eventType,
+          ae.entityType,
+          ae.entityId,
+          ae.action,
+          ae.outcome,
+          ae.actorUserId,
+          ae.actorRole,
+          u.name AS actorName,
+          u.username AS actorUsername,
+          ae.requestId,
+          ae.method,
+          ae.route,
+          ae.reference,
+          ae.ipAddress,
+          ae.userAgent,
+          ae.beforeData,
+          ae.afterData,
+          ae.metadata,
+          ae.prevHash,
+          ae.eventHash,
+          ae.createdAt
+        FROM AuditEvent ae
+        LEFT JOIN User u ON u.id = ae.actorUserId
         ${whereSql}
-        ORDER BY createdAt DESC, id DESC
+        ORDER BY ae.createdAt DESC, ae.id DESC
         LIMIT ? OFFSET ?
       `, ...params, limit, offset);
         const total = Number((_j = (_h = countRows[0]) === null || _h === void 0 ? void 0 : _h.total) !== null && _j !== void 0 ? _j : 0);
@@ -110,28 +113,31 @@ const getAuditEventById = async (req, res) => {
         const { id } = req.params;
         const rows = await prisma.$queryRawUnsafe(`
         SELECT
-          id,
-          eventType,
-          entityType,
-          entityId,
-          action,
-          outcome,
-          actorUserId,
-          actorRole,
-          requestId,
-          method,
-          route,
-          reference,
-          ipAddress,
-          userAgent,
-          beforeData,
-          afterData,
-          metadata,
-          prevHash,
-          eventHash,
-          createdAt
-        FROM AuditEvent
-        WHERE id = ?
+          ae.id,
+          ae.eventType,
+          ae.entityType,
+          ae.entityId,
+          ae.action,
+          ae.outcome,
+          ae.actorUserId,
+          ae.actorRole,
+          u.name AS actorName,
+          u.username AS actorUsername,
+          ae.requestId,
+          ae.method,
+          ae.route,
+          ae.reference,
+          ae.ipAddress,
+          ae.userAgent,
+          ae.beforeData,
+          ae.afterData,
+          ae.metadata,
+          ae.prevHash,
+          ae.eventHash,
+          ae.createdAt
+        FROM AuditEvent ae
+        LEFT JOIN User u ON u.id = ae.actorUserId
+        WHERE ae.id = ?
         LIMIT 1
       `, id);
         if (rows.length === 0) {

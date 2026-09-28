@@ -21,11 +21,13 @@ const reports_routes_1 = require("./routes/reports.routes");
 const expenses_routes_1 = __importDefault(require("./routes/expenses.routes"));
 const users_routes_1 = __importDefault(require("./routes/users.routes"));
 const audit_routes_1 = __importDefault(require("./routes/audit.routes"));
+const settings_routes_1 = __importDefault(require("./routes/settings.routes"));
 const errorHandler_1 = require("./middleware/errorHandler");
 const auditTrail_1 = require("./middleware/auditTrail");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const port = process.env.PORT || 5000;
+const host = process.env.HOST || '0.0.0.0';
 // Middleware
 app.use((0, cors_1.default)());
 app.use(express_1.default.json({ limit: '10mb' })); // Increase JSON payload limit
@@ -48,9 +50,10 @@ app.use('/api/reports', reports_routes_1.reportsRouter);
 app.use('/api/expenses', expenses_routes_1.default);
 app.use('/api/users', users_routes_1.default);
 app.use('/api/audit', audit_routes_1.default);
+app.use('/api/settings', settings_routes_1.default);
 // Error handling middleware
 app.use(errorHandler_1.errorHandler);
 // Start server
-app.listen(port, () => {
-    console.log(`Server is running on port ${port}`);
+app.listen(Number(port), host, () => {
+    console.log(`Server is running on http://${host}:${port}`);
 });

@@ -24,8 +24,8 @@ const LoanForm: React.FC<LoanFormProps> = ({
     amount: 0,
     interestRate: 5,
     term: 12,
-    repaymentFrequency: 'monthly',
-    status: 'active',
+    repaymentFrequency: 'MONTHLY',
+    status: 'ACTIVE',
     ...initialData,
   });
 
@@ -45,20 +45,6 @@ const LoanForm: React.FC<LoanFormProps> = ({
       setMonthlyPayment(payment);
     }
   }, [formData.amount, formData.interestRate, formData.term]);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-    
-    // Clear error when field is modified
-    if (errors[name]) {
-      setErrors((prev) => {
-        const newErrors = { ...prev };
-        delete newErrors[name];
-        return newErrors;
-      });
-    }
-  };
 
   const handleSelectChange = (name: string) => (value: string) => {
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -211,12 +197,12 @@ const LoanForm: React.FC<LoanFormProps> = ({
         <Select
           label="Repayment Frequency"
           name="repaymentFrequency"
-          value={formData.repaymentFrequency || 'monthly'}
+          value={formData.repaymentFrequency || 'MONTHLY'}
           onChange={handleSelectChange('repaymentFrequency')}
           options={[
-            { value: 'monthly', label: 'Monthly' },
-            { value: 'quarterly', label: 'Quarterly' },
-            { value: 'annually', label: 'Annually' }
+            { value: 'MONTHLY', label: 'Monthly' },
+            { value: 'QUARTERLY', label: 'Quarterly' },
+            { value: 'ANNUALLY', label: 'Annually' }
           ]}
           fullWidth
           disabled={!!initialData.id}
@@ -226,12 +212,12 @@ const LoanForm: React.FC<LoanFormProps> = ({
           <Select
             label="Loan Status"
             name="status"
-            value={formData.status || 'active'}
+            value={formData.status || 'ACTIVE'}
             onChange={handleSelectChange('status')}
             options={[
-              { value: 'active', label: 'Active' },
-              { value: 'paid', label: 'Paid' },
-              { value: 'defaulted', label: 'Defaulted' }
+              { value: 'ACTIVE', label: 'Active' },
+              { value: 'PAID', label: 'Paid' },
+              { value: 'DEFAULTED', label: 'Defaulted' }
             ]}
             fullWidth
           />
@@ -240,9 +226,9 @@ const LoanForm: React.FC<LoanFormProps> = ({
       
       {/* Payment summary */}
       {formData.amount && formData.term && (
-        <div className="bg-blue-50 p-4 rounded-md">
-          <h4 className="text-sm font-semibold text-blue-800 mb-2">Loan Summary</h4>
-          <div className="grid grid-cols-2 gap-2 text-sm text-blue-700">
+        <div className="bg-blue-50 dark:bg-blue-900 p-4 rounded-md">
+          <h4 className="text-sm font-semibold text-blue-800 dark:text-blue-200 mb-2">Loan Summary</h4>
+          <div className="grid grid-cols-2 gap-2 text-sm text-blue-700 dark:text-blue-300">
             <div>Principal Amount:</div>
             <div className="font-semibold">{formatCurrency(formData.amount)}</div>
             
@@ -265,8 +251,8 @@ const LoanForm: React.FC<LoanFormProps> = ({
       )}
       
       {selectedCustomer && (
-        <div className="bg-gray-50 p-4 rounded-md">
-          <p className="text-sm text-gray-700">
+        <div className="bg-gray-50 dark:bg-gray-800 p-4 rounded-md">
+          <p className="text-sm text-gray-700 dark:text-gray-300">
             Creating loan for: <strong>{selectedCustomer.name}</strong>
             <br />
             Email: {selectedCustomer.email}

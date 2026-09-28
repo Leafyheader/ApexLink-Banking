@@ -1,44 +1,13 @@
 "use strict";
-var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
-}) : (function(o, m, k, k2) {
-    if (k2 === undefined) k2 = k;
-    o[k2] = m[k];
-}));
-var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
-    Object.defineProperty(o, "default", { enumerable: true, value: v });
-}) : function(o, v) {
-    o["default"] = v;
-});
-var __importStar = (this && this.__importStar) || (function () {
-    var ownKeys = function(o) {
-        ownKeys = Object.getOwnPropertyNames || function (o) {
-            var ar = [];
-            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
-            return ar;
-        };
-        return ownKeys(o);
-    };
-    return function (mod) {
-        if (mod && mod.__esModule) return mod;
-        var result = {};
-        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
-        __setModuleDefault(result, mod);
-        return result;
-    };
-})();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getEnhancedAccountBalance = exports.checkWithdrawalAvailability = exports.getCustomerGuaranteeInfo = exports.getAccountNotifications = exports.getTransactionStats = exports.updateTransactionStatus = exports.createTransaction = exports.createTransactionWithLedger = exports.getTransactionById = exports.getTransactions = void 0;
+exports.getEnhancedAccountBalance = exports.checkWithdrawalAvailability = exports.getCustomerGuaranteeInfo = exports.getAccountNotifications = exports.getTransactionStats = exports.updateTransactionStatus = exports.updateTransaction = exports.createTransaction = exports.createTransactionWithLedger = exports.getTransactionById = exports.getTransactions = void 0;
 const client_1 = require("@prisma/client");
-const bankIncome_service_1 = require("../services/bankIncome.service");
 const loanRepayment_service_1 = require("../services/loanRepayment.service");
 const guarantee_service_1 = require("../services/guarantee.service");
+const cashReporting_1 = require("../utils/cashReporting");
 const prisma = new client_1.PrismaClient();
+// DB enums use underscores (WITHDRAWAL_SHARES); the frontend uses hyphens (withdrawal-shares)
+const formatTransactionType = (type) => type.toLowerCase().replace(/_/g, '-');
 // Get all transactions with filters
 const getTransactions = async (req, res) => {
     try {
@@ -83,7 +52,7 @@ const getTransactions = async (req, res) => {
             where.status = status.toString().toUpperCase();
         }
         if (type && type !== '') {
-            where.type = type.toString().toUpperCase();
+            where.type = type.toString().toUpperCase().replace(/-/g, '_');
         }
         if (accountId) {
             where.accountId = accountId;
@@ -104,14 +73,14 @@ const getTransactions = async (req, res) => {
                 { account: accountWhere }
             ];
         }
-        if (dateFrom || dateTo) {
+        const rangeStart = (0, cashReporting_1.parseRangeStart)(dateFrom);
+        const rangeEnd = (0, cashReporting_1.parseRangeEnd)(dateTo);
+        if (rangeStart || rangeEnd) {
             where.date = {};
-            if (dateFrom) {
-                where.date.gte = new Date(dateFrom);
-            }
-            if (dateTo) {
-                where.date.lte = new Date(dateTo);
-            }
+            if (rangeStart)
+                where.date.gte = rangeStart;
+            if (rangeEnd)
+                where.date.lte = rangeEnd;
         }
         // Get transactions with pagination
         const [transactions, totalCount] = await Promise.all([
@@ -144,10 +113,12 @@ const getTransactions = async (req, res) => {
             id: transaction.id,
             accountId: transaction.accountId,
             accountNumber: transaction.account.accountNumber,
-            customerName: transaction.account.customer.name,
+            customerName: transaction.account.customer.name
+                || `${transaction.account.customer.firstName || ''} ${transaction.account.customer.surname || ''}`.trim()
+                || 'Unknown Customer',
             customerId: transaction.account.customer.id,
             amount: Number(transaction.amount),
-            type: transaction.type.toLowerCase(),
+            type: formatTransactionType(transaction.type),
             status: transaction.status.toLowerCase(),
             date: transaction.date.toISOString(),
             description: transaction.description || `${transaction.type} transaction`,
@@ -205,7 +176,7 @@ const getTransactionById = async (req, res) => {
             accountNumber: transaction.account.accountNumber,
             customer: transaction.account.customer,
             amount: Number(transaction.amount),
-            type: transaction.type.toLowerCase(),
+            type: formatTransactionType(transaction.type),
             status: transaction.status.toLowerCase(),
             date: transaction.date.toISOString(),
             description: transaction.description || `${transaction.type} transaction`,
@@ -248,13 +219,26 @@ const createTransactionWithLedger = async (req, res) => {
         // Convert type and validate
         const transactionType = type.toUpperCase().replace('-', '_');
         const transactionAmount = Number(amount);
-        if (transactionAmount <= 0) {
-            return res.status(400).json({ error: 'Amount must be greater than 0' });
+        if (!(0, cashReporting_1.isValidAmount)(transactionAmount)) {
+            return res.status(400).json({ error: 'Amount must be a positive value with at most 2 decimal places' });
+        }
+        // Withdrawals must go through the withdrawal-authorization (manager approval) flow.
+        if (!['DEPOSIT', 'DEPOSIT_SHARES'].includes(transactionType)) {
+            return res.status(400).json({
+                error: 'Only deposits can be posted directly. Withdrawals and transfers must be submitted for authorization.'
+            });
+        }
+        // Loan balances are driven by the repayment engine and the treasury by expenses/funding -
+        // a plain deposit into either would desync them from their own records.
+        if (account.type === 'LOAN' || account.type === 'TREASURY') {
+            return res.status(400).json({ error: `Deposits cannot be posted to a ${account.type.toLowerCase()} account` });
+        }
+        if ((0, cashReporting_1.isReservedReference)(reference)) {
+            return res.status(400).json({ error: 'This reference prefix is reserved for system transactions' });
         }
         // Generate unique reference
         const txReference = reference || `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
         let transaction;
-        let withdrawalCharge = 0;
         // Process different transaction types
         switch (transactionType) {
             case 'DEPOSIT':
@@ -353,101 +337,6 @@ const createTransactionWithLedger = async (req, res) => {
                     return createdTransaction;
                 });
                 break;
-            case 'WITHDRAWAL':
-                // Use enhanced guarantee service
-                const guaranteeService = new guarantee_service_1.GuaranteeService(prisma);
-                // Enhanced check for withdrawal availability considering loans and guarantees
-                const withdrawalInfo = await guaranteeService.calculateAvailableForWithdrawal(accountId);
-                withdrawalCharge = 5.00;
-                const totalRequired = transactionAmount + withdrawalCharge;
-                if (totalRequired > withdrawalInfo.availableAmount) {
-                    const restrictionDetails = withdrawalInfo.restrictions.map((r) => r.description).join('; ');
-                    return res.status(400).json({
-                        error: `Insufficient funds available for withdrawal.`,
-                        details: {
-                            accountBalance: withdrawalInfo.accountBalance,
-                            availableForWithdrawal: withdrawalInfo.availableAmount,
-                            requestedAmount: transactionAmount,
-                            requiredIncludingCharge: totalRequired,
-                            restrictedByOwnLoans: withdrawalInfo.restrictedByOwnLoans,
-                            restrictedByGuarantees: withdrawalInfo.restrictedByGuarantees,
-                            restrictions: withdrawalInfo.restrictions
-                        },
-                        message: `You can only withdraw up to ₵${Math.max(withdrawalInfo.availableAmount - withdrawalCharge, 0).toLocaleString()} after fees from your ₵${withdrawalInfo.accountBalance.toLocaleString()} balance. ${restrictionDetails}`
-                    });
-                }
-                transaction = await prisma.$transaction(async (tx) => {
-                    const mainTransaction = await tx.transaction.create({
-                        data: {
-                            accountId,
-                            type: 'WITHDRAWAL',
-                            amount: transactionAmount,
-                            description: description || 'Withdrawal transaction',
-                            reference: txReference,
-                            status: 'COMPLETED'
-                        },
-                        include: {
-                            account: {
-                                include: {
-                                    customer: {
-                                        select: { id: true, name: true, firstName: true, surname: true }
-                                    }
-                                }
-                            }
-                        }
-                    });
-                    await tx.ledgerEntry.create({
-                        data: {
-                            accountId,
-                            type: 'DEBIT',
-                            amount: transactionAmount,
-                            currency: 'GHS',
-                            reference: txReference,
-                            description: description || 'Withdrawal transaction',
-                            transactionId: mainTransaction.id,
-                            createdBy: actorId
-                        }
-                    });
-                    const chargeTransaction = await tx.transaction.create({
-                        data: {
-                            accountId,
-                            type: 'WITHDRAWAL',
-                            amount: withdrawalCharge,
-                            description: 'Withdrawal processing fee',
-                            reference: `FEE-${txReference}`,
-                            status: 'COMPLETED'
-                        }
-                    });
-                    await tx.ledgerEntry.create({
-                        data: {
-                            accountId,
-                            type: 'DEBIT',
-                            amount: withdrawalCharge,
-                            currency: 'GHS',
-                            reference: `FEE-${txReference}`,
-                            description: 'Withdrawal processing fee',
-                            transactionId: chargeTransaction.id,
-                            createdBy: actorId
-                        }
-                    });
-                    await tx.account.update({
-                        where: { id: accountId },
-                        data: {
-                            balance: {
-                                decrement: totalRequired
-                            },
-                            lastTransactionDate: new Date()
-                        }
-                    });
-                    return mainTransaction;
-                });
-                try {
-                    await bankIncome_service_1.BankIncomeService.recordWithdrawalCharge(transaction.id, accountId, account.customerId, withdrawalCharge);
-                }
-                catch (incomeError) {
-                    console.error('Failed to record bank income:', incomeError);
-                }
-                break;
             default:
                 return res.status(400).json({ error: 'Invalid transaction type for ledger processing' });
         }
@@ -459,7 +348,7 @@ const createTransactionWithLedger = async (req, res) => {
             customerName: account.customer.name,
             customerId: account.customer.id,
             amount: Number(transaction.amount),
-            type: transaction.type.toLowerCase(),
+            type: formatTransactionType(transaction.type),
             status: transaction.status.toLowerCase(),
             date: transaction.date.toISOString(),
             description: transaction.description,
@@ -478,7 +367,8 @@ const createTransactionWithLedger = async (req, res) => {
     }
 };
 exports.createTransactionWithLedger = createTransactionWithLedger;
-// Create a new transaction (original implementation for complex cases)
+// Post a loan repayment. Deposits go through POST /transactions/ledger and withdrawals/transfers
+// through the withdrawal-authorization flow; this endpoint only handles loan repayments.
 const createTransaction = async (req, res) => {
     try {
         const { accountId, type, amount, description, reference } = req.body;
@@ -488,6 +378,19 @@ const createTransaction = async (req, res) => {
                 error: 'Account ID, type, and amount are required'
             });
         }
+        const transactionType = type.toUpperCase().replace('-', '_');
+        if (transactionType !== 'LOAN_REPAYMENT') {
+            return res.status(400).json({
+                error: 'Invalid transaction type. Deposits use /transactions/ledger; withdrawals and transfers must be submitted for authorization.'
+            });
+        }
+        const transactionAmount = Number(amount);
+        if (!(0, cashReporting_1.isValidAmount)(transactionAmount)) {
+            return res.status(400).json({ error: 'Amount must be a positive value with at most 2 decimal places' });
+        }
+        if ((0, cashReporting_1.isReservedReference)(reference)) {
+            return res.status(400).json({ error: 'This reference prefix is reserved for system transactions' });
+        }
         // Validate account exists
         const account = await prisma.account.findUnique({
             where: { id: accountId },
@@ -495,291 +398,15 @@ const createTransaction = async (req, res) => {
         });
         if (!account) {
             return res.status(404).json({ error: 'Account not found' });
-        } // Validate account is active
+        }
         if (account.status.toUpperCase() !== 'ACTIVE') {
             return res.status(400).json({ error: 'Account is not active' });
-        } // Convert type to uppercase for database
-        const transactionType = type.toUpperCase().replace('-', '_');
-        // Validate transaction type
-        if (!['DEPOSIT', 'DEPOSIT_SHARES', 'WITHDRAWAL', 'TRANSFER', 'LOAN_REPAYMENT'].includes(transactionType)) {
-            return res.status(400).json({ error: 'Invalid transaction type' });
         }
-        // Validate amount
-        const transactionAmount = Number(amount);
-        if (transactionAmount <= 0) {
-            return res.status(400).json({ error: 'Amount must be greater than 0' });
-        } // Validate transaction type constraints
-        if (transactionType === 'LOAN_REPAYMENT') {
-            // Loan repayments can only be made to loan accounts
-            if (account.type !== 'LOAN') {
-                return res.status(400).json({
-                    error: 'Loan repayments can only be made to loan accounts'
-                });
-            }
-            // For loan accounts, check if repayment is still needed
-            const currentDebt = Math.abs(Number(account.balance)); // Convert negative balance to positive debt amount
-            // Get loan info to check guarantor reimbursement status
-            const loan = await prisma.loan.findUnique({
-                where: { accountId },
-                select: {
-                    amount: true,
-                    // TODO: Add guarantor percentage fields when available
-                    // guarantor1Percentage: true,
-                    // guarantor2Percentage: true,
-                    // guarantor3Percentage: true,
-                    // TODO: Add guarantor account ID fields when available
-                    // guarantor1AccountId: true,
-                    // guarantor2AccountId: true,
-                    // guarantor3AccountId: true
-                }
-            });
-            let guarantorStillOwed = 0;
-            if (loan) {
-                // Calculate total guarantor contribution
-                // TODO: Implement guarantor percentage calculation when fields are available
-                const totalGuarantorPercentage = 0; // Placeholder
-                const totalGuarantorContribution = (Number(loan.amount) * totalGuarantorPercentage) / 100;
-                // Check guarantor reimbursement status
-                // TODO: Implement guarantor account lookup when fields are available
-                const guarantorAccountIds = []; // Placeholder
-                if (guarantorAccountIds.length > 0) {
-                    const guarantorReimbursements = await prisma.transaction.findMany({
-                        where: {
-                            AND: [
-                                {
-                                    OR: [
-                                        {
-                                            description: {
-                                                contains: 'Guarantor reimbursement'
-                                            }
-                                        },
-                                        {
-                                            description: {
-                                                contains: 'Loan repayment disbursement'
-                                            }
-                                        }
-                                    ]
-                                },
-                                {
-                                    accountId: {
-                                        in: guarantorAccountIds
-                                    }
-                                },
-                                {
-                                    reference: {
-                                        contains: 'GRB-'
-                                    }
-                                }
-                            ]
-                        }
-                    });
-                    const guarantorTotalReimbursed = guarantorReimbursements.reduce((sum, txn) => sum + Number(txn.amount), 0);
-                    guarantorStillOwed = Math.max(0, totalGuarantorContribution - guarantorTotalReimbursed);
-                }
-            }
-            // Allow repayment if there's outstanding debt OR guarantors still need reimbursement
-            if (currentDebt === 0 && guarantorStillOwed === 0) {
-                return res.status(400).json({
-                    error: 'Loan is fully paid and all guarantors have been reimbursed'
-                });
-            }
-            // Debug logging for validation
-            console.log('DEBUG - Payment Validation:');
-            console.log(`  Current Debt: ${currentDebt}`);
-            console.log(`  Guarantor Still Owed: ${guarantorStillOwed}`);
-            console.log(`  Total Obligations: ${currentDebt + guarantorStillOwed}`);
-            console.log(`  Transaction Amount: ${transactionAmount}`);
-            console.log(`  Should Reject: ${currentDebt > 0 && transactionAmount > currentDebt + guarantorStillOwed}`);
-            // If there's debt, check that payment doesn't exceed it + remaining guarantor obligations
-            if (currentDebt > 0 && transactionAmount > currentDebt + guarantorStillOwed) {
-                return res.status(400).json({
-                    error: `Repayment amount ($${transactionAmount}) exceeds total remaining obligations (debt: $${currentDebt} + guarantor reimbursement: $${guarantorStillOwed})`
-                });
-            }
+        if (account.type !== 'LOAN') {
+            return res.status(400).json({ error: 'Loan repayments can only be made to loan accounts' });
         }
-        // For withdrawals, check if account has sufficient balance
-        if (transactionType === 'WITHDRAWAL') {
-            const currentBalance = Number(account.balance);
-            const overdraftLimit = Number(account.overdraftLimit || 0);
-            const availableBalance = currentBalance + overdraftLimit;
-            if (transactionAmount > availableBalance) {
-                return res.status(400).json({
-                    error: 'Insufficient funds for withdrawal'
-                });
-            }
-        } // Generate unique reference if not provided
-        const transactionReference = reference || `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`; // Handle loan repayment with guarantor disbursement
-        if (transactionType === 'LOAN_REPAYMENT') {
-            return await handleLoanRepaymentWithDisbursement(accountId, transactionAmount, description, transactionReference, account, res);
-        }
-        // Create transaction for non-loan repayments
-        const transaction = await prisma.transaction.create({
-            data: {
-                accountId,
-                type: transactionType,
-                amount: transactionAmount,
-                description: description || `${transactionType} transaction`,
-                reference: transactionReference,
-                status: 'COMPLETED' // For now, all transactions are immediately completed
-            },
-            include: {
-                account: {
-                    include: {
-                        customer: {
-                            select: {
-                                id: true,
-                                name: true,
-                                firstName: true,
-                                surname: true
-                            }
-                        }
-                    }
-                }
-            }
-        }); // Update account balance
-        let newBalance = Number(account.balance);
-        let newShareBalance = Number(account.shareBalance || 0);
-        if (transactionType === 'DEPOSIT') {
-            newBalance += transactionAmount;
-        }
-        else if (transactionType === 'DEPOSIT_SHARES') {
-            // For shares deposits, update the shareBalance instead of main balance
-            newShareBalance += transactionAmount;
-        }
-        else if (transactionType === 'WITHDRAWAL') {
-            newBalance -= transactionAmount;
-        }
-        else if (transactionType === 'LOAN_REPAYMENT') {
-            // For loan repayments, we need to:
-            // 1. Apply 50% of payment to reduce loan debt
-            // 2. Distribute remaining 50% back to guarantors based on their percentages
-            // First, apply 50% to reduce the loan debt
-            const debtReductionAmount = transactionAmount * 0.5;
-            newBalance += debtReductionAmount;
-            // Get the loan information to find guarantors with their account IDs
-            const loan = await prisma.loan.findFirst({
-                where: { accountId },
-                select: {
-                    id: true,
-                    // TODO: Add guarantor fields when available
-                    // guarantor1Id: true,
-                    // guarantor1AccountId: true,
-                    // guarantor1Percentage: true,
-                    // TODO: Add guarantor relations when available
-                    // guarantor1: {
-                    //   select: { name: true }
-                    // },
-                }
-            });
-            if (loan) {
-                // TODO: Implement guarantor disbursement when fields are available
-                const guarantorDisbursementAmount = transactionAmount * 0.5;
-                // Get active guarantors with their percentages
-                const activeGuarantors = [];
-                // TODO: Add guarantor processing when fields are available
-                // if (loan.guarantor1Id && loan.guarantor1AccountId && loan.guarantor1Percentage) {
-                //   activeGuarantors.push({
-                //     accountId: loan.guarantor1AccountId,
-                //     percentage: loan.guarantor1Percentage,
-                //     customerName: loan.guarantor1?.name || 'Unknown'
-                //   });
-                // }
-                // Calculate total percentage of active guarantors
-                const totalActivePercentage = activeGuarantors.reduce((sum, g) => sum + g.percentage, 0);
-                // Distribute disbursement amount to guarantors based on their relative percentages
-                if (activeGuarantors.length > 0 && totalActivePercentage > 0) {
-                    for (const guarantor of activeGuarantors) {
-                        const guarantorShare = (guarantor.percentage / totalActivePercentage) * guarantorDisbursementAmount;
-                        // Update guarantor account balance
-                        await prisma.account.update({
-                            where: { id: guarantor.accountId },
-                            data: {
-                                balance: {
-                                    increment: guarantorShare
-                                },
-                                lastTransactionDate: new Date()
-                            }
-                        });
-                        // Create transaction record for guarantor disbursement
-                        await prisma.transaction.create({
-                            data: {
-                                type: 'DEPOSIT',
-                                amount: guarantorShare,
-                                accountId: guarantor.accountId,
-                                description: `Loan repayment disbursement from loan ${account.accountNumber} (${guarantor.percentage}% share)`,
-                                reference: `LRD-${Date.now()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
-                                status: 'COMPLETED'
-                            }
-                        });
-                    }
-                }
-            }
-        }
-        // Update account balance and last transaction date
-        const updateData = {
-            balance: newBalance,
-            lastTransactionDate: new Date()
-        };
-        // For shares deposits, also update the shareBalance
-        if (transactionType === 'DEPOSIT_SHARES') {
-            updateData.shareBalance = newShareBalance;
-        }
-        await prisma.account.update({
-            where: { id: accountId },
-            data: updateData
-        });
-        // For withdrawals, automatically deduct 5 cedis charge and record as bank income
-        if (transactionType === 'WITHDRAWAL') {
-            const withdrawalCharge = 5.00;
-            // Deduct charge from account
-            await prisma.account.update({
-                where: { id: accountId },
-                data: {
-                    balance: {
-                        decrement: withdrawalCharge
-                    }
-                }
-            }); // Create charge transaction record
-            const chargeTransaction = await prisma.transaction.create({
-                data: {
-                    accountId,
-                    type: client_1.TransactionType.WITHDRAWAL,
-                    amount: withdrawalCharge,
-                    description: 'withdrawal charge',
-                    reference: `CHG-${transactionReference}`,
-                    status: client_1.TransactionStatus.COMPLETED
-                }
-            });
-            // Record as bank income
-            try {
-                await bankIncome_service_1.BankIncomeService.recordWithdrawalCharge(transaction.id, accountId, account.customerId, withdrawalCharge);
-            }
-            catch (error) {
-                console.error('Error recording withdrawal charge as income:', error);
-                // Don't fail the transaction if income recording fails
-            }
-            // Update the account balance in our response to reflect the charge
-            newBalance -= withdrawalCharge;
-        }
-        // Format transaction for response
-        const formattedTransaction = {
-            id: transaction.id,
-            accountId: transaction.accountId,
-            accountNumber: transaction.account.accountNumber,
-            customerName: transaction.account.customer.name,
-            customerId: transaction.account.customer.id,
-            amount: Number(transaction.amount),
-            type: transaction.type.toLowerCase(),
-            status: transaction.status.toLowerCase(),
-            date: transaction.date.toISOString(),
-            description: transaction.description,
-            reference: transaction.reference,
-            createdAt: transaction.createdAt.toISOString(),
-            updatedAt: transaction.updatedAt.toISOString(),
-            // Include updated account balance in response for better frontend feedback
-            accountBalance: newBalance
-        };
-        res.status(201).json(formattedTransaction);
+        const transactionReference = reference || `TXN-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
+        return await handleLoanRepaymentWithDisbursement(accountId, transactionAmount, description, transactionReference, res);
     }
     catch (error) {
         console.error('Error creating transaction:', error);
@@ -792,6 +419,89 @@ const createTransaction = async (req, res) => {
     }
 };
 exports.createTransaction = createTransaction;
+// Edit a transaction's details. Only pending/failed transactions can be edited since
+// completed transactions have already moved money - editing those would silently
+// desync the transaction record from the balance/ledger effect that already happened.
+const updateTransaction = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { accountId, type, amount, description, reference } = req.body;
+        const existingTransaction = await prisma.transaction.findUnique({ where: { id } });
+        if (!existingTransaction) {
+            return res.status(404).json({ error: 'Transaction not found' });
+        }
+        if (existingTransaction.status === 'COMPLETED') {
+            return res.status(400).json({
+                error: 'Completed transactions cannot be edited because the balance/ledger effect has already been applied.'
+            });
+        }
+        const updateData = {};
+        if (accountId !== undefined) {
+            const account = await prisma.account.findUnique({ where: { id: accountId } });
+            if (!account) {
+                return res.status(404).json({ error: 'Account not found' });
+            }
+            updateData.accountId = accountId;
+        }
+        if (type !== undefined) {
+            updateData.type = type.toString().toUpperCase().replace(/-/g, '_');
+        }
+        if (amount !== undefined) {
+            const amountNumber = Number(amount);
+            if (!(0, cashReporting_1.isValidAmount)(amountNumber)) {
+                return res.status(400).json({ error: 'Amount must be a positive value with at most 2 decimal places' });
+            }
+            updateData.amount = amountNumber;
+        }
+        if (description !== undefined) {
+            updateData.description = description;
+        }
+        if (reference !== undefined) {
+            if ((0, cashReporting_1.isReservedReference)(reference)) {
+                return res.status(400).json({ error: 'This reference prefix is reserved for system transactions' });
+            }
+            updateData.reference = reference;
+        }
+        const updatedTransaction = await prisma.transaction.update({
+            where: { id },
+            data: updateData,
+            include: {
+                account: {
+                    include: {
+                        customer: {
+                            select: { id: true, name: true, firstName: true, surname: true }
+                        }
+                    }
+                }
+            }
+        });
+        res.json({
+            id: updatedTransaction.id,
+            accountId: updatedTransaction.accountId,
+            accountNumber: updatedTransaction.account.accountNumber,
+            customerName: updatedTransaction.account.customer.name,
+            customerId: updatedTransaction.account.customer.id,
+            amount: Number(updatedTransaction.amount),
+            type: formatTransactionType(updatedTransaction.type),
+            status: updatedTransaction.status.toLowerCase(),
+            date: updatedTransaction.date.toISOString(),
+            description: updatedTransaction.description,
+            reference: updatedTransaction.reference,
+            createdAt: updatedTransaction.createdAt.toISOString(),
+            updatedAt: updatedTransaction.updatedAt.toISOString()
+        });
+    }
+    catch (error) {
+        console.error('Error updating transaction:', error);
+        if (error.code === 'P2002') {
+            res.status(400).json({ error: 'Transaction reference must be unique' });
+        }
+        else {
+            res.status(500).json({ error: 'Failed to update transaction' });
+        }
+    }
+};
+exports.updateTransaction = updateTransaction;
 // Update transaction status (for pending transactions)
 const updateTransactionStatus = async (req, res) => {
     try {
@@ -800,10 +510,13 @@ const updateTransactionStatus = async (req, res) => {
         if (!status) {
             return res.status(400).json({ error: 'Status is required' });
         }
-        // Validate status
-        const validStatuses = ['COMPLETED', 'PENDING', 'FAILED'];
-        if (!validStatuses.includes(status.toUpperCase())) {
-            return res.status(400).json({ error: 'Invalid status' });
+        // A pending transaction can only be failed here. Completing one by flipping its status
+        // would move money without the checks its real flow applies (withdrawal approval, fees,
+        // guarantee holds, the loan repayment engine) - money must move through those flows.
+        if (status.toUpperCase() !== 'FAILED') {
+            return res.status(400).json({
+                error: 'Pending transactions can only be marked as failed. Re-post the transaction through its normal flow to complete it.'
+            });
         }
         // Find transaction
         const existingTransaction = await prisma.transaction.findUnique({
@@ -819,10 +532,15 @@ const updateTransactionStatus = async (req, res) => {
                 error: 'Can only update status of pending transactions'
             });
         }
-        // Update transaction status
-        const updatedTransaction = await prisma.transaction.update({
+        const claim = await prisma.transaction.updateMany({
+            where: { id, status: 'PENDING' },
+            data: { status: 'FAILED' }
+        });
+        if (claim.count === 0) {
+            return res.status(409).json({ error: 'Transaction status has already changed' });
+        }
+        const updatedTransaction = await prisma.transaction.findUniqueOrThrow({
             where: { id },
-            data: { status: status.toUpperCase() },
             include: {
                 account: {
                     include: {
@@ -838,25 +556,6 @@ const updateTransactionStatus = async (req, res) => {
                 }
             }
         });
-        // If status is being set to COMPLETED, update account balance
-        if (status.toUpperCase() === 'COMPLETED') {
-            const account = existingTransaction.account;
-            let newBalance = Number(account.balance);
-            const amount = Number(existingTransaction.amount);
-            if (existingTransaction.type === 'DEPOSIT') {
-                newBalance += amount;
-            }
-            else if (existingTransaction.type === 'WITHDRAWAL') {
-                newBalance -= amount;
-            }
-            await prisma.account.update({
-                where: { id: existingTransaction.accountId },
-                data: {
-                    balance: newBalance,
-                    lastTransactionDate: new Date()
-                }
-            });
-        }
         // Format transaction for response
         const formattedTransaction = {
             id: updatedTransaction.id,
@@ -865,7 +564,7 @@ const updateTransactionStatus = async (req, res) => {
             customerName: updatedTransaction.account.customer.name,
             customerId: updatedTransaction.account.customer.id,
             amount: Number(updatedTransaction.amount),
-            type: updatedTransaction.type.toLowerCase(),
+            type: formatTransactionType(updatedTransaction.type),
             status: updatedTransaction.status.toLowerCase(),
             date: updatedTransaction.date.toISOString(),
             description: updatedTransaction.description,
@@ -883,96 +582,88 @@ const updateTransactionStatus = async (req, res) => {
 exports.updateTransactionStatus = updateTransactionStatus;
 // Get transaction statistics
 const getTransactionStats = async (req, res) => {
+    var _a, _b;
     try {
         const { dateFrom, dateTo } = req.query;
         // Build date filter
         const dateFilter = {};
-        if (dateFrom || dateTo) {
-            if (dateFrom)
-                dateFilter.gte = new Date(dateFrom);
-            if (dateTo)
-                dateFilter.lte = new Date(dateTo);
+        const rangeStart = (0, cashReporting_1.parseRangeStart)(dateFrom);
+        const rangeEnd = (0, cashReporting_1.parseRangeEnd)(dateTo);
+        if (rangeStart || rangeEnd) {
+            if (rangeStart)
+                dateFilter.gte = rangeStart;
+            if (rangeEnd)
+                dateFilter.lte = rangeEnd;
         }
         else {
             // Default to current month if no date range provided
             const now = new Date();
-            const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-            const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-            dateFilter.gte = startOfMonth;
-            dateFilter.lte = endOfMonth;
+            dateFilter.gte = new Date(now.getFullYear(), now.getMonth(), 1);
+            dateFilter.lte = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
         }
-        // Get transaction statistics
-        const [totalTransactions, totalDeposits, totalWithdrawals, totalTransfers, completedTransactions, pendingTransactions, failedTransactions] = await Promise.all([
-            prisma.transaction.count({
-                where: { date: dateFilter }
-            }),
-            prisma.transaction.aggregate({
-                where: {
-                    type: 'DEPOSIT',
-                    status: 'COMPLETED',
-                    date: dateFilter
-                },
-                _sum: { amount: true },
-                _count: true
-            }),
-            prisma.transaction.aggregate({
-                where: {
-                    type: 'WITHDRAWAL',
-                    status: 'COMPLETED',
-                    date: dateFilter
-                },
-                _sum: { amount: true },
-                _count: true
-            }),
-            prisma.transaction.aggregate({
-                where: {
-                    type: 'TRANSFER',
-                    status: 'COMPLETED',
-                    date: dateFilter
-                },
-                _sum: { amount: true },
-                _count: true
-            }),
-            prisma.transaction.count({
-                where: {
-                    status: 'COMPLETED',
-                    date: dateFilter
-                }
-            }),
-            prisma.transaction.count({
-                where: {
-                    status: 'PENDING',
-                    date: dateFilter
-                }
-            }),
-            prisma.transaction.count({
-                where: {
-                    status: 'FAILED',
-                    date: dateFilter
-                }
-            })
+        // Deposit/withdrawal figures are CASH at the counter only - fees, transfer legs, opening
+        // balances, admin corrections, treasury and loan/guarantor bookkeeping are excluded (see
+        // utils/cashReporting.ts) so the totals can be reconciled against the physical drawer.
+        const sumWhere = (where) => prisma.transaction.aggregate({
+            where: Object.assign({ status: 'COMPLETED', date: dateFilter }, where),
+            _sum: { amount: true },
+            _count: true
+        });
+        const cash = (type) => sumWhere({ type, AND: [cashReporting_1.cashOnlyWhere] });
+        const [totalTransactions, totalDeposits, totalSharesDeposits, totalWithdrawals, totalSharesWithdrawals, totalTransfers, loanRepayments, loanDisbursements, reversals, fees, completedTransactions, pendingTransactions, failedTransactions] = await Promise.all([
+            prisma.transaction.count({ where: { date: dateFilter } }),
+            cash('DEPOSIT'),
+            cash('DEPOSIT_SHARES'),
+            cash('WITHDRAWAL'),
+            cash('WITHDRAWAL_SHARES'),
+            sumWhere({ type: 'TRANSFER' }),
+            sumWhere(cashReporting_1.cashLoanRepaymentWhere),
+            sumWhere(cashReporting_1.loanDisbursementWhere),
+            sumWhere({ type: { in: ['DEPOSIT', 'DEPOSIT_SHARES'] }, AND: [cashReporting_1.cashReversalWhere] }),
+            sumWhere({ AND: [cashReporting_1.feesOnlyWhere] }),
+            prisma.transaction.count({ where: { status: 'COMPLETED', date: dateFilter } }),
+            prisma.transaction.count({ where: { status: 'PENDING', date: dateFilter } }),
+            prisma.transaction.count({ where: { status: 'FAILED', date: dateFilter } })
         ]);
+        const bucket = (agg) => ({
+            count: agg._count,
+            amount: Number(agg._sum.amount || 0)
+        });
+        const deposits = bucket(totalDeposits);
+        const sharesDeposits = bucket(totalSharesDeposits);
+        const withdrawals = bucket(totalWithdrawals);
+        const sharesWithdrawals = bucket(totalSharesWithdrawals);
+        const repayments = bucket(loanRepayments);
+        const disbursements = bucket(loanDisbursements);
+        const returned = bucket(reversals);
+        const cashIn = (0, cashReporting_1.toPesewas)(deposits.amount + sharesDeposits.amount + repayments.amount + returned.amount);
+        const cashOut = (0, cashReporting_1.toPesewas)(withdrawals.amount + sharesWithdrawals.amount + disbursements.amount);
         const stats = {
             totalTransactions,
             transactionsByType: {
-                deposits: {
-                    count: totalDeposits._count,
-                    amount: Number(totalDeposits._sum.amount || 0)
-                },
-                withdrawals: {
-                    count: totalWithdrawals._count,
-                    amount: Number(totalWithdrawals._sum.amount || 0)
-                },
-                transfers: {
-                    count: totalTransfers._count,
-                    amount: Number(totalTransfers._sum.amount || 0)
-                }
+                deposits,
+                sharesDeposits,
+                withdrawals,
+                sharesWithdrawals,
+                transfers: bucket(totalTransfers),
+                loanRepayments: repayments,
+                loanDisbursements: disbursements,
+                reversals: returned,
+                fees: bucket(fees)
+            },
+            // Expected movement of the physical cash drawer for the period.
+            cashSummary: {
+                cashIn,
+                cashOut,
+                net: (0, cashReporting_1.toPesewas)(cashIn - cashOut)
             },
             transactionsByStatus: {
                 completed: completedTransactions,
                 pending: pendingTransactions,
                 failed: failedTransactions
-            }
+            },
+            periodStart: (_a = dateFilter.gte) === null || _a === void 0 ? void 0 : _a.toISOString(),
+            periodEnd: (_b = dateFilter.lte) === null || _b === void 0 ? void 0 : _b.toISOString()
         };
         res.json(stats);
     }
@@ -982,183 +673,74 @@ const getTransactionStats = async (req, res) => {
     }
 };
 exports.getTransactionStats = getTransactionStats;
-// Handle loan repayment with proper business logic
-async function handleLoanRepaymentWithDisbursement(accountId, repaymentAmount, description, transactionReference, account, res) {
-    console.log('🔥 ENTERING new handleLoanRepaymentWithDisbursement');
-    console.log(`🔥 AccountId: ${accountId}, Amount: ${repaymentAmount}`);
-    try { // Get the loan information including guarantor account details
-        const loan = await prisma.loan.findUnique({
-            where: { accountId },
-            select: {
-                id: true,
-                customerId: true,
-                accountId: true,
-                amount: true,
-                totalPayable: true,
-                amountPaid: true,
-                outstandingBalance: true,
-                status: true,
-                guaranteeRequired: true, // Add this field
-                // New tracking fields
-                totalPaid: true,
-                totalInterestPaid: true,
-                guarantorReimbursed: true,
-                principalRemaining: true,
-                isCompleted: true,
-                lastPaymentDate: true,
-                lastPaymentAmount: true,
-                // TODO: Add guarantor info fields when available
-                // guarantor1Id: true,
-                // guarantor1AccountId: true,
-                // guarantor1Percentage: true,
-                // Relations
-                customer: true,
-                // TODO: Add guarantor account relations when available
-                // guarantor1Account: {
-                //   include: { customer: true }
-                // },
-                // TODO: Add remaining guarantor account relations when available
-                // guarantor2Account: {
-                //   include: { customer: true }
-                // },
-            }
-        });
-        if (!loan) {
-            return res.status(404).json({ error: 'Loan not found for this account' });
-        } // Prepare current loan state for our repayment logic
-        const loanAmount = Number(loan.amount);
-        const totalInterest = loanAmount * 0.10; // 10% interest
-        const totalPayable = loanAmount + totalInterest;
-        const currentLoanState = {
-            loanAmount: loanAmount,
-            totalRepayable: totalPayable,
-            guarantorAdvance: Number(loan.guaranteeRequired || 0),
-            totalPaid: Number(loan.totalPaid || 0),
-            totalInterestPaid: Number(loan.totalInterestPaid || 0),
-            guarantorReimbursed: Number(loan.guarantorReimbursed || 0),
-            principalRemaining: Number(loan.principalRemaining || loanAmount),
-            isCompleted: Boolean(loan.isCompleted || false)
-        };
-        console.log('Current loan state:', currentLoanState);
-        console.log('Loan details:', {
-            amount: loan.amount,
-            guaranteeRequired: loan.guaranteeRequired,
-            totalPayable: totalPayable
-        });
-        // Apply repayment logic
-        const repaymentResult = (0, loanRepayment_service_1.makeRepayment)(repaymentAmount, currentLoanState);
-        if (!repaymentResult.success) {
-            return res.status(400).json({ error: repaymentResult.error });
-        }
-        console.log('Repayment calculation result:', repaymentResult);
-        // Get active guarantors from the database
-        const activeGuarantors = [];
-        // Get guarantors for this loan
-        const loanGuarantors = await prisma.loanGuarantor.findMany({
-            where: {
-                loanId: loan.id,
-                status: 'ACTIVE'
-            },
-            include: {
-                guarantorAccount: {
-                    include: { customer: true }
-                }
-            }
-        });
-        // Calculate total guaranteed amount and percentages
-        const totalGuaranteed = loanGuarantors.reduce((sum, g) => sum + Number(g.guaranteedAmount), 0);
-        for (const guarantor of loanGuarantors) {
-            const guaranteedAmount = Number(guarantor.guaranteedAmount);
-            const percentage = loanAmount > 0 ? (guaranteedAmount / loanAmount) * 100 : 0;
-            activeGuarantors.push({
-                accountId: guarantor.guarantorAccountId,
-                percentage: percentage,
-                account: guarantor.guarantorAccount,
-                guaranteedAmount: guaranteedAmount
-            });
-        }
-        console.log(`Found ${activeGuarantors.length} active guarantors with total guarantee: ₵${totalGuaranteed.toLocaleString()}`);
-        // Execute all operations in a transaction
+// Handle loan repayment with proper business logic.
+// Everything - reading the loan's current state, running the repayment waterfall and writing the
+// result - happens inside ONE database transaction, and the loan update is a compare-and-swap on
+// totalPaid. Otherwise two repayments posted at the same time (double-click, two tellers) would
+// both compute from the same stale state: both cash receipts get recorded but the loan only
+// reflects one of them.
+class RepaymentError extends Error {
+    constructor(status, message) {
+        super(message);
+        this.status = status;
+    }
+}
+async function handleLoanRepaymentWithDisbursement(accountId, repaymentAmount, description, transactionReference, res) {
+    try {
         const result = await prisma.$transaction(async (tx) => {
-            var _a, _b, _c;
-            // 1. Create the main loan repayment transaction
-            const loanRepaymentTransaction = await tx.transaction.create({
-                data: {
-                    accountId,
-                    type: 'LOAN_REPAYMENT',
-                    amount: repaymentResult.payment.amount,
-                    description: description || `Loan repayment - GH₵${repaymentResult.payment.amount} (Interest: GH₵${repaymentResult.payment.breakdown.interestPaid.toFixed(2)}, Guarantor: GH₵${repaymentResult.payment.breakdown.guarantorReimbursement.toFixed(2)}, Loan: GH₵${repaymentResult.payment.breakdown.loanReduction.toFixed(2)})`,
-                    reference: transactionReference,
-                    status: 'COMPLETED'
-                },
+            var _a, _b, _c, _d;
+            const loan = await tx.loan.findUnique({
+                where: { accountId },
                 include: {
-                    account: {
-                        include: {
-                            customer: {
-                                select: {
-                                    id: true,
-                                    name: true,
-                                    firstName: true,
-                                    surname: true
-                                }
-                            }
-                        }
+                    account: { select: { accountNumber: true } },
+                    guarantors: {
+                        where: { status: 'ACTIVE' },
+                        include: { guarantorAccount: { include: { customer: true } } },
+                        orderBy: { createdAt: 'asc' }
                     }
                 }
             });
-            // 2. Handle guarantor reimbursements if any
-            const disbursementTransactions = [];
-            const guarantorReimbursement = repaymentResult.payment.breakdown.guarantorReimbursement;
-            if (guarantorReimbursement > 0 && activeGuarantors.length > 0) {
-                // Calculate total active guarantor percentage
-                const totalActivePercentage = activeGuarantors.reduce((sum, g) => sum + g.percentage, 0);
-                // Distribute reimbursement proportionally among guarantors
-                for (const guarantor of activeGuarantors) {
-                    const guarantorShare = (guarantor.percentage / totalActivePercentage) * guarantorReimbursement;
-                    if (guarantorShare > 0) {
-                        // Update guarantor account balance
-                        await tx.account.update({
-                            where: { id: guarantor.accountId },
-                            data: {
-                                balance: {
-                                    increment: guarantorShare
-                                },
-                                lastTransactionDate: new Date()
-                            }
-                        });
-                        // Create disbursement transaction record
-                        const disbursementTransaction = await tx.transaction.create({
-                            data: {
-                                accountId: guarantor.accountId,
-                                type: 'DEPOSIT',
-                                amount: guarantorShare,
-                                description: `Guarantor reimbursement from loan repayment - ${loan.customerId} (${guarantor.percentage}% share)`, // TODO: Include customer relation for name
-                                reference: `GRB-${transactionReference}-${guarantor.accountId.slice(-6)}`,
-                                status: 'COMPLETED'
-                            }
-                        });
-                        disbursementTransactions.push(Object.assign(Object.assign({}, disbursementTransaction), { guarantorName: ((_b = (_a = guarantor.account) === null || _a === void 0 ? void 0 : _a.customer) === null || _b === void 0 ? void 0 : _b.name) || 'Unknown', accountNumber: ((_c = guarantor.account) === null || _c === void 0 ? void 0 : _c.accountNumber) || 'Unknown', percentage: guarantor.percentage }));
-                    }
-                }
+            if (!loan) {
+                throw new RepaymentError(404, 'Loan not found for this account');
             }
-            // 3. Update the loan account balance (the loan reduction amount reduces debt)
-            const loanReduction = repaymentResult.payment.breakdown.loanReduction;
-            const newLoanBalance = Number(account.balance) + loanReduction;
-            await tx.account.update({
-                where: { id: accountId },
-                data: {
-                    balance: newLoanBalance,
-                    lastTransactionDate: new Date()
-                }
-            }); // 4. Update loan record with new tracking data
+            if (loan.authorizationStatus !== 'APPROVED') {
+                throw new RepaymentError(400, 'Loan has not been approved and disbursed yet');
+            }
+            if (loan.isCompleted) {
+                throw new RepaymentError(400, 'Loan is already fully paid');
+            }
+            // totalPayable must come from the loan's own record (computed at creation from its actual
+            // interestRate) - recomputing it from a fixed rate would misallocate every payment.
+            const loanAmount = Number(loan.amount);
+            const totalPayable = Number(loan.totalPayable);
+            const remainingOwed = (0, cashReporting_1.toPesewas)(totalPayable - Number(loan.totalPaid || 0));
+            // Reject overpayment outright. The repayment engine would otherwise silently cap the
+            // payment, recording less than the cash the teller actually took in.
+            if (repaymentAmount > remainingOwed) {
+                throw new RepaymentError(400, `Repayment amount (₵${repaymentAmount.toFixed(2)}) exceeds the amount still owed on this loan (₵${remainingOwed.toFixed(2)})`);
+            }
+            const currentLoanState = {
+                loanAmount,
+                totalRepayable: totalPayable,
+                guarantorAdvance: Number(loan.guaranteeRequired || 0),
+                totalPaid: Number(loan.totalPaid || 0),
+                totalInterestPaid: Number(loan.totalInterestPaid || 0),
+                guarantorReimbursed: Number(loan.guarantorReimbursed || 0),
+                principalRemaining: Number((_a = loan.principalRemaining) !== null && _a !== void 0 ? _a : loanAmount),
+                isCompleted: Boolean(loan.isCompleted)
+            };
+            const repaymentResult = (0, loanRepayment_service_1.makeRepayment)(repaymentAmount, currentLoanState);
+            if (!repaymentResult.success) {
+                throw new RepaymentError(400, repaymentResult.error || 'Repayment failed');
+            }
+            const payment = repaymentResult.payment;
+            const breakdown = payment.breakdown;
             const updatedLoanState = repaymentResult.loanState;
             const isLoanCompleted = repaymentResult.isCompleted;
-            // Calculate proper outstanding balance
-            // If loan is completed, outstanding should be 0
-            // Otherwise, it's the remaining balance from our logic
-            const newOutstandingBalance = isLoanCompleted ? 0 : repaymentResult.remainingBalance;
-            await tx.loan.update({
-                where: { id: loan.id },
+            // 1. Claim the loan state we computed from. If another repayment committed in between,
+            // totalPaid no longer matches and this one aborts instead of overwriting it.
+            const claim = await tx.loan.updateMany({
+                where: { id: loan.id, totalPaid: loan.totalPaid, isCompleted: false },
                 data: {
                     totalPaid: updatedLoanState.totalPaid,
                     totalInterestPaid: updatedLoanState.totalInterestPaid,
@@ -1166,24 +748,115 @@ async function handleLoanRepaymentWithDisbursement(accountId, repaymentAmount, d
                     principalRemaining: updatedLoanState.principalRemaining,
                     isCompleted: updatedLoanState.isCompleted,
                     lastPaymentDate: new Date(),
-                    lastPaymentAmount: repaymentResult.payment.amount,
-                    // Update legacy fields for compatibility
+                    lastPaymentAmount: payment.amount,
+                    // Legacy fields kept in sync for compatibility
                     amountPaid: updatedLoanState.totalPaid,
-                    outstandingBalance: newOutstandingBalance,
-                    status: updatedLoanState.isCompleted ? 'PAID' : 'ACTIVE'
+                    outstandingBalance: isLoanCompleted ? 0 : repaymentResult.remainingBalance,
+                    status: isLoanCompleted ? 'PAID' : 'ACTIVE'
                 }
             });
-            // 5. Record interest as bank income
-            const interestPaid = repaymentResult.payment.breakdown.interestPaid;
-            if (interestPaid > 0) {
+            if (claim.count === 0) {
+                throw new RepaymentError(409, 'Another repayment was just posted to this loan. Refresh and check the balance before trying again.');
+            }
+            // 2. The main loan repayment transaction (the cash received)
+            const loanRepaymentTransaction = await tx.transaction.create({
+                data: {
+                    accountId,
+                    type: 'LOAN_REPAYMENT',
+                    amount: payment.amount,
+                    description: description || `Loan repayment - GH₵${payment.amount} (Interest: GH₵${breakdown.interestPaid.toFixed(2)}, Guarantor: GH₵${breakdown.guarantorReimbursement.toFixed(2)}, Loan: GH₵${breakdown.loanReduction.toFixed(2)})`,
+                    reference: transactionReference,
+                    status: 'COMPLETED'
+                },
+                include: {
+                    account: {
+                        include: {
+                            customer: { select: { id: true, name: true, firstName: true, surname: true } }
+                        }
+                    }
+                }
+            });
+            // 3. Reimburse guarantors in proportion to what each guaranteed, in whole pesewas. The
+            // split is based on each guarantor's cumulative entitlement vs. what they've actually been
+            // paid (amountReimbursed), so the shares always add up to exactly this reimbursement and
+            // each guarantor ends up with exactly their guaranteed amount when the loan completes.
+            const disbursementTransactions = [];
+            const guarantorReimbursement = breakdown.guarantorReimbursement;
+            if (guarantorReimbursement > 0 && loan.guarantors.length > 0) {
+                const shares = (0, loanRepayment_service_1.allocateGuarantorReimbursement)(loan.guarantors.map(g => ({
+                    guaranteedAmount: Number(g.guaranteedAmount),
+                    reimbursedSoFar: Number(g.amountReimbursed || 0)
+                })), updatedLoanState.guarantorReimbursed, guarantorReimbursement);
+                for (let i = 0; i < loan.guarantors.length; i++) {
+                    const guarantor = loan.guarantors[i];
+                    const guaranteedAmount = Number(guarantor.guaranteedAmount);
+                    const guarantorShare = shares[i];
+                    const percentage = loanAmount > 0 ? (guaranteedAmount / loanAmount) * 100 : 0;
+                    if (guarantorShare > 0) {
+                        await tx.loanGuarantor.update({
+                            where: { id: guarantor.id },
+                            data: { amountReimbursed: { increment: guarantorShare } }
+                        });
+                        await tx.account.update({
+                            where: { id: guarantor.guarantorAccountId },
+                            data: {
+                                balance: { increment: guarantorShare },
+                                lastTransactionDate: new Date()
+                            }
+                        });
+                        const disbursementTransaction = await tx.transaction.create({
+                            data: {
+                                accountId: guarantor.guarantorAccountId,
+                                type: 'DEPOSIT',
+                                amount: guarantorShare,
+                                description: `Guarantor reimbursement from loan repayment - ${loan.account.accountNumber} (${percentage.toFixed(2)}% share)`,
+                                reference: `GRB-${transactionReference}-${guarantor.guarantorAccountId.slice(-6)}`,
+                                status: 'COMPLETED'
+                            }
+                        });
+                        disbursementTransactions.push({
+                            guarantorName: ((_c = (_b = guarantor.guarantorAccount) === null || _b === void 0 ? void 0 : _b.customer) === null || _c === void 0 ? void 0 : _c.name) || 'Unknown',
+                            accountNumber: ((_d = guarantor.guarantorAccount) === null || _d === void 0 ? void 0 : _d.accountNumber) || 'Unknown',
+                            amount: Number(disbursementTransaction.amount),
+                            percentage,
+                            reference: disbursementTransaction.reference
+                        });
+                    }
+                }
+            }
+            // 4. Move the loan account toward zero by the principal retired. Both the guarantor
+            // reimbursement (phase 1) and the loan-reduction portion (phase 2) are principal - see
+            // principalPortion in loanRepayment.service.ts. Incremented atomically, never hard-set.
+            const principalPortion = (0, cashReporting_1.toPesewas)(breakdown.loanReduction + breakdown.guarantorReimbursement);
+            const updatedAccount = await tx.account.update({
+                where: { id: accountId },
+                data: {
+                    balance: { increment: principalPortion },
+                    lastTransactionDate: new Date()
+                }
+            });
+            // 5. Loan fully repaid: guarantors have been paid back in full by the waterfall, and the
+            // borrower's own 50% backing hold is no longer needed.
+            if (isLoanCompleted) {
+                await tx.accountRestriction.updateMany({
+                    where: { loanId: loan.id, restrictionType: 'LOAN_OWN_BACKING', isActive: true },
+                    data: { isActive: false, releasedAt: new Date() }
+                });
+                await tx.loanGuarantor.updateMany({
+                    where: { loanId: loan.id, status: 'ACTIVE' },
+                    data: { status: 'FUNDS_RETURNED' }
+                });
+            }
+            // 6. Record interest as bank income
+            if (breakdown.interestPaid > 0) {
                 await tx.bankIncome.create({
                     data: {
                         type: 'LOAN_INTEREST',
-                        amount: interestPaid,
-                        description: `Interest income from loan repayment - ${loan.customerId} (${account.accountNumber})`, // TODO: Include customer relation for name
+                        amount: breakdown.interestPaid,
+                        description: `Interest income from loan repayment - ${loan.account.accountNumber}`,
                         sourceId: transactionReference,
                         sourceType: 'LOAN_REPAYMENT',
-                        accountId: accountId,
+                        accountId,
                         customerId: loan.customerId
                     }
                 });
@@ -1191,39 +864,42 @@ async function handleLoanRepaymentWithDisbursement(accountId, repaymentAmount, d
             return {
                 loanRepaymentTransaction,
                 disbursementTransactions,
-                newLoanBalance,
-                repaymentBreakdown: repaymentResult.payment.breakdown,
-                loanState: repaymentResult.loanState,
+                newLoanBalance: Number(updatedAccount.balance),
+                breakdown,
+                loanState: updatedLoanState,
                 remainingBalance: repaymentResult.remainingBalance,
-                isCompleted: repaymentResult.isCompleted,
-                activeGuarantorsCount: activeGuarantors.length
+                isCompleted: isLoanCompleted,
+                activeGuarantorsCount: loan.guarantors.length,
+                paymentAmount: payment.amount
             };
         }, {
-            timeout: 10000 // Increase timeout to 10 seconds
+            timeout: 10000
         });
-        // Format response
-        const formattedTransaction = {
-            id: result.loanRepaymentTransaction.id,
-            accountId: result.loanRepaymentTransaction.accountId,
-            accountNumber: result.loanRepaymentTransaction.account.accountNumber,
-            customerName: result.loanRepaymentTransaction.account.customer.name,
-            customerId: result.loanRepaymentTransaction.account.customer.id,
-            amount: Number(result.loanRepaymentTransaction.amount),
-            type: result.loanRepaymentTransaction.type.toLowerCase(),
-            status: result.loanRepaymentTransaction.status.toLowerCase(),
-            date: result.loanRepaymentTransaction.date.toISOString(),
-            description: result.loanRepaymentTransaction.description,
-            reference: result.loanRepaymentTransaction.reference,
-            createdAt: result.loanRepaymentTransaction.createdAt.toISOString(),
-            updatedAt: result.loanRepaymentTransaction.updatedAt.toISOString(),
+        const txn = result.loanRepaymentTransaction;
+        // Note: guarantors are already reimbursed incrementally on every repayment (step 3), capped
+        // at their guaranteedAmount by the repayment logic. Do NOT also run guarantorReimbursementService's
+        // lump-sum "loan completion" reimbursement - it would pay each guarantor a second time.
+        return res.status(201).json({
+            id: txn.id,
+            accountId: txn.accountId,
+            accountNumber: txn.account.accountNumber,
+            customerName: txn.account.customer.name,
+            customerId: txn.account.customer.id,
+            amount: Number(txn.amount),
+            type: formatTransactionType(txn.type),
+            status: txn.status.toLowerCase(),
+            date: txn.date.toISOString(),
+            description: txn.description,
+            reference: txn.reference,
+            createdAt: txn.createdAt.toISOString(),
+            updatedAt: txn.updatedAt.toISOString(),
             accountBalance: result.newLoanBalance,
-            // Additional loan repayment details using proper business logic
             repaymentDetails: {
-                totalRepayment: repaymentResult.payment.amount,
+                totalRepayment: result.paymentAmount,
                 breakdown: {
-                    interestPaid: result.repaymentBreakdown.interestPaid,
-                    guarantorReimbursement: result.repaymentBreakdown.guarantorReimbursement,
-                    loanReduction: result.repaymentBreakdown.loanReduction
+                    interestPaid: result.breakdown.interestPaid,
+                    guarantorReimbursement: result.breakdown.guarantorReimbursement,
+                    loanReduction: result.breakdown.loanReduction
                 },
                 loanState: {
                     totalPaid: result.loanState.totalPaid,
@@ -1235,61 +911,18 @@ async function handleLoanRepaymentWithDisbursement(accountId, repaymentAmount, d
                 remainingBalance: result.remainingBalance,
                 isCompleted: result.isCompleted,
                 guarantorsCount: result.activeGuarantorsCount,
-                disbursements: result.disbursementTransactions.map(dt => ({
-                    guarantorName: dt.guarantorName,
-                    accountNumber: dt.accountNumber,
-                    amount: Number(dt.amount),
-                    percentage: dt.percentage,
-                    reference: dt.reference
-                }))
+                disbursements: result.disbursementTransactions
             }
-        };
-        // 6. Handle guarantor fund reimbursement if loan is completed
-        if (result.isCompleted) {
-            console.log('🎉 Loan completed! Processing guarantor fund reimbursement...');
-            try {
-                // Import the guarantor reimbursement service
-                const { createGuarantorReimbursementService } = await Promise.resolve().then(() => __importStar(require('../services/guarantorReimbursement.service')));
-                const reimbursementService = createGuarantorReimbursementService(prisma);
-                // Process the reimbursement
-                const reimbursementResult = await reimbursementService.processLoanCompletionReimbursement(loan.id);
-                if (reimbursementResult.success) {
-                    console.log(`✅ Guarantor funds reimbursed: ${reimbursementResult.message}`);
-                    // Add reimbursement details to response
-                    formattedTransaction.repaymentDetails.guarantorFundReimbursement = {
-                        processed: true,
-                        totalCreditedBack: reimbursementResult.totalCreditedBack,
-                        guarantorsReimbursed: reimbursementResult.reimbursements.length,
-                        details: reimbursementResult.reimbursements.map(r => ({
-                            guarantorName: r.guarantorName,
-                            accountNumber: r.accountNumber,
-                            amount: r.creditedBack,
-                            transactionId: r.transactionId
-                        }))
-                    };
-                }
-                else {
-                    console.warn(`⚠️ Guarantor fund reimbursement failed: ${reimbursementResult.error}`);
-                    // Add failure info to response
-                    formattedTransaction.repaymentDetails.guarantorFundReimbursement = {
-                        processed: false,
-                        error: reimbursementResult.error
-                    };
-                }
-            }
-            catch (reimbursementError) {
-                console.error('Error during guarantor fund reimbursement:', reimbursementError);
-                // Add error info to response but don't fail the main transaction
-                formattedTransaction.repaymentDetails.guarantorFundReimbursement = {
-                    processed: false,
-                    error: 'Failed to process guarantor fund reimbursement'
-                };
-            }
-        }
-        return res.status(201).json(formattedTransaction);
+        });
     }
     catch (error) {
-        console.error('Error processing loan repayment with proper logic:', error);
+        if (error instanceof RepaymentError) {
+            return res.status(error.status).json({ error: error.message });
+        }
+        if ((error === null || error === void 0 ? void 0 : error.code) === 'P2002') {
+            return res.status(400).json({ error: 'Transaction reference must be unique' });
+        }
+        console.error('Error processing loan repayment:', error);
         return res.status(500).json({ error: 'Failed to process loan repayment' });
     }
 }

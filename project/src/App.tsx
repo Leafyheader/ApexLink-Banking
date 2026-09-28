@@ -24,20 +24,30 @@ import Expenses from './pages/Expenses';
 import ExpenseApproval from './pages/ExpenseApproval';
 import Users from './pages/Users';
 import CreateUser from './pages/CreateUser';
+import Settings from './pages/Settings';
 import { ToastProvider } from './components/ui/Toast';
 import { AuthProvider } from './contexts/AuthContext';
+import { ThemeProvider, useTheme } from './contexts/ThemeContext';
 import PrivateRoute from './components/auth/PrivateRoute';
-
-// Import other pages as they are created
-// import Reports from './pages/Reports';
-// import Settings from './pages/Settings';
 
 const App: React.FC = () => {
   return (
-    <ToastProvider>
-      <Router>
-        <AuthProvider>
-          <Routes>
+    <ThemeProvider>
+      <ToastProvider>
+        <Router>
+          <AuthProvider>
+            <AppRoutes />
+          </AuthProvider>
+          <ThemedToastContainer />
+        </Router>
+      </ToastProvider>
+    </ThemeProvider>
+  );
+};
+
+const AppRoutes: React.FC = () => {
+  return (
+    <Routes>
             {/* Public route */}
             <Route path="/login" element={<Login />} />
 
@@ -67,37 +77,48 @@ const App: React.FC = () => {
               <Route path="users/new" element={<CreateUser />} />
               <Route path="reports" element={<Reports />} />
               <Route path="audit" element={<Audit />} />
-              {/* Add routes for other pages as they are created */}
-            </Route>
-            
-            {/* 404 route */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </AuthProvider>
-        <ToastContainer
-          position="top-right"
-          autoClose={5000}
-          hideProgressBar={false}
-          newestOnTop={false}
-          closeOnClick
-          rtl={false}
-          pauseOnFocusLoss
-          draggable
-          pauseOnHover
-          theme="light"
-        />
-      </Router>
-    </ToastProvider>
+              <Route
+                path="settings"
+                element={
+                  <PrivateRoute roles={['ADMIN']}>
+                    <Settings />
+                  </PrivateRoute>
+                }
+              />
+      {/* Add routes for other pages as they are created */}
+      </Route>
+
+      {/* 404 route */}
+      <Route path="*" element={<NotFound />} />
+    </Routes>
+  );
+};
+
+const ThemedToastContainer: React.FC = () => {
+  const { theme } = useTheme();
+  return (
+    <ToastContainer
+      position="top-right"
+      autoClose={5000}
+      hideProgressBar={false}
+      newestOnTop={false}
+      closeOnClick
+      rtl={false}
+      pauseOnFocusLoss
+      draggable
+      pauseOnHover
+      theme={theme}
+    />
   );
 };
 
 // Simple 404 page
 const NotFound: React.FC = () => {
   return (
-    <div className="flex flex-col items-center justify-center min-h-[50vh]">
-      <h1 className="text-4xl font-bold text-gray-800 mb-4">404</h1>
-      <p className="text-xl text-gray-600 mb-8">Page not found</p>
-      <p className="text-gray-500">The page you are looking for doesn't exist or has been moved.</p>
+    <div className="flex flex-col items-center justify-center min-h-[50vh] bg-light-bg dark:bg-dark-bg">
+      <h1 className="text-4xl font-bold text-gray-800 dark:text-dark-text mb-4">404</h1>
+      <p className="text-xl text-gray-600 dark:text-gray-300 mb-8">Page not found</p>
+      <p className="text-gray-500 dark:text-gray-400">The page you are looking for doesn't exist or has been moved.</p>
     </div>
   );
 };

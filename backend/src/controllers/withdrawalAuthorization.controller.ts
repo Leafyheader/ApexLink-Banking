@@ -2,9 +2,12 @@ import { Response } from 'express';
 import { PrismaClient, WithdrawalType, TransactionType, WithdrawalAuthorizationStatus } from '@prisma/client';
 import { AuthRequest } from '../types/auth';
 import { JwtPayload } from 'jsonwebtoken';
-import { BankIncomeService } from '../services/bankIncome.service';
+import { GuaranteeService } from '../services/guarantee.service';
+import { getWithdrawalFee } from '../utils/systemSettings';
+import { isValidAmount, isReservedReference } from '../utils/cashReporting';
 
 const prisma = new PrismaClient();
+const guaranteeService = new GuaranteeService(prisma);
 
 interface AuthenticatedUser extends JwtPayload {
   id: string;
@@ -12,6 +15,10 @@ interface AuthenticatedUser extends JwtPayload {
   name: string;
   role: string;
 }
+
+// Maps the DB enum (WITHDRAWAL_SHARES) to the frontend's hyphenated convention (withdrawal-shares)
+const formatWithdrawalType = (type: WithdrawalType): string =>
+  type === WithdrawalType.WITHDRAWAL_SHARES ? 'withdrawal-shares' : type.toLowerCase();
 
 export const getWithdrawalAuthorizations = async (req: AuthRequest, res: Response) => {
   try {
@@ -57,7 +64,7 @@ export const getWithdrawalAuthorizations = async (req: AuthRequest, res: Respons
     }
 
     if (type && type !== 'all') {
-      where.type = type.toString().toUpperCase();
+      where.type = type.toString().toUpperCase().replace(/-/g, '_');
     }
 
     // Get total count for pagination
@@ -98,28 +105,38 @@ export const getWithdrawalAuthorizations = async (req: AuthRequest, res: Respons
       },
       skip,
       take: Number(limit)
-    });    // Transform data for frontend
-    const transactions = withdrawalAuthorizations.map(auth => ({
-      id: auth.id,
-      accountNumber: auth.account.accountNumber,
-      customerName: auth.account.customer.name,
-      customerId: auth.account.customer.id,
-      amount: Number(auth.amount),
-      type: auth.type.toLowerCase(),
-      description: auth.description || '',
-      reference: auth.reference || '',
-      toAccountNumber: auth.toAccountNumber || '',
-      toCustomerName: auth.toCustomerName || '',
-      requestedAt: auth.requestedAt.toISOString(),
-      requestedBy: auth.requestedBy.name,
-      approvedBy: auth.approvedBy?.name || '',
-      status: auth.status.toLowerCase(),
-      availableBalance: Number(auth.account.balance),
-      rejectedReason: auth.rejectedReason,
-      isReversed: auth.isReversed || false,
-      reversedBy: auth.reversedBy?.name || '',
-      reversedAt: auth.reversedAt?.toISOString() || '',
-      reversalReason: auth.reversalReason || ''
+    });    // Transform data for frontend. For regular (non-shares) withdrawals, "available" must be
+    // the balance actually available for withdrawal - i.e. minus any active loan-guarantee holds
+    // on the account - not the raw balance, since that's exactly what approveWithdrawalAuthorization
+    // itself checks. Showing raw balance here would tell an approver a request looks safe to
+    // approve when a guarantee restriction could still cause the actual approval call to fail.
+    const transactions = await Promise.all(withdrawalAuthorizations.map(async (auth) => {
+      const availableBalance = auth.type === WithdrawalType.WITHDRAWAL_SHARES
+        ? Number(auth.account.shareBalance || 0)
+        : (await guaranteeService.calculateAvailableForWithdrawal(auth.accountId)).availableAmount;
+
+      return {
+        id: auth.id,
+        accountNumber: auth.account.accountNumber,
+        customerName: auth.account.customer.name,
+        customerId: auth.account.customer.id,
+        amount: Number(auth.amount),
+        type: formatWithdrawalType(auth.type),
+        description: auth.description || '',
+        reference: auth.reference || '',
+        toAccountNumber: auth.toAccountNumber || '',
+        toCustomerName: auth.toCustomerName || '',
+        requestedAt: auth.requestedAt.toISOString(),
+        requestedBy: auth.requestedBy.name,
+        approvedBy: auth.approvedBy?.name || '',
+        status: auth.status.toLowerCase(),
+        availableBalance,
+        rejectedReason: auth.rejectedReason,
+        isReversed: auth.isReversed || false,
+        reversedBy: auth.reversedBy?.name || '',
+        reversedAt: auth.reversedAt?.toISOString() || '',
+        reversalReason: auth.reversalReason || ''
+      };
     }));
 
     // Calculate summary statistics
@@ -179,7 +196,8 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
     const withdrawalAuth = await prisma.withdrawalAuthorization.findUnique({
       where: { id },
       include: {
-        account: true
+        account: true,
+        toAccount: true
       }
     });
 
@@ -191,29 +209,61 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
       return res.status(400).json({ error: 'Withdrawal authorization is not pending' });
     }
 
-    // Check available balance considering loan guarantees
-    const { SimpleLoanService } = require('../services/simple-loan.service');
-    const loanService = new SimpleLoanService(prisma);
-    const availableForWithdrawal = await loanService.getAvailableBalanceForWithdrawal(withdrawalAuth.accountId);
-    
-    const chargeAmount = withdrawalAuth.type === WithdrawalType.WITHDRAWAL ? 5.00 : 0;
+    // Guards requests created before amount validation existed - a non-positive amount
+    // would credit the account instead of debiting it.
+    if (!isValidAmount(Number(withdrawalAuth.amount))) {
+      return res.status(400).json({ error: 'Withdrawal amount is invalid (must be positive). Reject this request.' });
+    }
+
+    const isSharesWithdrawal = withdrawalAuth.type === WithdrawalType.WITHDRAWAL_SHARES;
+    const isTransfer = withdrawalAuth.type === WithdrawalType.TRANSFER;
+    // Use the currently configured fee, not a hardcoded 5.00 - this must match what the actual
+    // debit and the "withdrawal charge" ledger entry below use, or an admin changing the fee in
+    // Settings would make the account get debited one amount while the books record another.
+    const chargeAmount = (withdrawalAuth.type === WithdrawalType.WITHDRAWAL || isSharesWithdrawal)
+      ? await getWithdrawalFee(prisma)
+      : 0;
     const totalRequired = Number(withdrawalAuth.amount) + chargeAmount;
 
-    if (totalRequired > availableForWithdrawal) {
-      const currentBalance = Number(withdrawalAuth.account.balance);
-      const restrictedAmount = currentBalance - availableForWithdrawal;
-      return res.status(400).json({ 
-        error: `Insufficient available balance. Account Balance: ${currentBalance}, Available: ${availableForWithdrawal}, Requested: ${withdrawalAuth.amount}, Charges: ${chargeAmount}` +
-               (restrictedAmount > 0 ? `. ${restrictedAmount} is restricted due to loan guarantees.` : '')
-      });
+    if (isTransfer) {
+      if (!withdrawalAuth.toAccountId || !withdrawalAuth.toAccount) {
+        return res.status(400).json({ error: 'Transfer is missing a destination account and cannot be approved' });
+      }
+      if (withdrawalAuth.toAccount.status.toUpperCase() !== 'ACTIVE') {
+        return res.status(400).json({ error: 'Destination account is not active' });
+      }
+    }
+
+    if (isSharesWithdrawal) {
+      // Shares are not subject to loan guarantee restrictions - those only encumber the main balance
+      const availableShares = Number(withdrawalAuth.account.shareBalance || 0);
+      if (totalRequired > availableShares) {
+        return res.status(400).json({
+          error: `Insufficient share balance. Share Balance: ${availableShares}, Requested: ${withdrawalAuth.amount}, Charges: ${chargeAmount}`
+        });
+      }
+    } else {
+      // Check available balance considering loan guarantees
+      const { availableAmount: availableForWithdrawal } = await guaranteeService.calculateAvailableForWithdrawal(withdrawalAuth.accountId);
+
+      if (totalRequired > availableForWithdrawal) {
+        const currentBalance = Number(withdrawalAuth.account.balance);
+        const restrictedAmount = currentBalance - availableForWithdrawal;
+        return res.status(400).json({
+          error: `Insufficient available balance. Account Balance: ${currentBalance}, Available: ${availableForWithdrawal}, Requested: ${withdrawalAuth.amount}, Charges: ${chargeAmount}` +
+                 (restrictedAmount > 0 ? `. ${restrictedAmount} is restricted due to loan guarantees.` : '')
+        });
+      }
     }
 
     // Start transaction
-    const approvalResult = await prisma.$transaction(async (tx) => {
+    await prisma.$transaction(async (tx) => {
       const operationReference = withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`;
 
-      await tx.withdrawalAuthorization.update({
-        where: { id },
+      // Atomically claim this request: if two approval calls for the same request race,
+      // only one updateMany will match status=PENDING and the loser aborts immediately.
+      const claimResult = await tx.withdrawalAuthorization.updateMany({
+        where: { id, status: WithdrawalAuthorizationStatus.PENDING },
         data: {
           status: WithdrawalAuthorizationStatus.APPROVED,
           approvedById: userId,
@@ -222,21 +272,38 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
         }
       });
 
-      const totalDebit = Number(withdrawalAuth.amount) + chargeAmount;
+      if (claimResult.count === 0) {
+        throw new Error('ALREADY_PROCESSED');
+      }
 
-      await tx.account.update({
-        where: { id: withdrawalAuth.accountId },
-        data: {
-          balance: {
-            decrement: totalDebit
-          },
-          lastTransactionDate: new Date()
-        }
-      });
+      const totalDebit = Number(withdrawalAuth.amount) + chargeAmount;
+      const mainTransactionType = isSharesWithdrawal
+        ? TransactionType.WITHDRAWAL_SHARES
+        : withdrawalAuth.type === WithdrawalType.WITHDRAWAL
+          ? TransactionType.WITHDRAWAL
+          : TransactionType.TRANSFER;
+
+      // Atomically debit only if the balance still covers it - the earlier availability
+      // check read a balance from before this transaction started, so a second pending
+      // request on the same account approved concurrently could otherwise slip through
+      // on stale data and overdraw the account.
+      const debitResult = isSharesWithdrawal
+        ? await tx.account.updateMany({
+            where: { id: withdrawalAuth.accountId, shareBalance: { gte: totalDebit } },
+            data: { shareBalance: { decrement: totalDebit }, lastTransactionDate: new Date() }
+          })
+        : await tx.account.updateMany({
+            where: { id: withdrawalAuth.accountId, balance: { gte: totalDebit } },
+            data: { balance: { decrement: totalDebit }, lastTransactionDate: new Date() }
+          });
+
+      if (debitResult.count === 0) {
+        throw new Error('INSUFFICIENT_FUNDS_AT_APPROVAL');
+      }
 
       const mainTransaction = await tx.transaction.create({
         data: {
-          type: withdrawalAuth.type === WithdrawalType.WITHDRAWAL ? TransactionType.WITHDRAWAL : TransactionType.TRANSFER,
+          type: mainTransactionType,
           amount: withdrawalAuth.amount,
           status: 'COMPLETED',
           description: withdrawalAuth.description || `${withdrawalAuth.type} approved`,
@@ -254,18 +321,22 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
           reference: operationReference,
           description: withdrawalAuth.description || `${withdrawalAuth.type} approved`,
           transactionId: mainTransaction.id,
+          metadata: isSharesWithdrawal ? { shareWithdrawal: true } : undefined,
           createdBy: userId
         }
       });
 
-      // For withdrawals, add the 5 cedis withdrawal charge
+      // For withdrawals (savings or shares), add the withdrawal charge - reuse the same
+      // chargeAmount already used for the availability check and the actual debit above,
+      // rather than looking the fee up again, so the ledger entry can never disagree with
+      // what was actually taken out of the balance.
       let chargeTransactionId: string | null = null;
-      if (withdrawalAuth.type === WithdrawalType.WITHDRAWAL) {
-        const withdrawalCharge = 5.00;
+      if ((withdrawalAuth.type === WithdrawalType.WITHDRAWAL || isSharesWithdrawal) && chargeAmount > 0) {
+        const withdrawalCharge = chargeAmount;
 
         const chargeTransaction = await tx.transaction.create({
           data: {
-            type: TransactionType.WITHDRAWAL,
+            type: isSharesWithdrawal ? TransactionType.WITHDRAWAL_SHARES : TransactionType.WITHDRAWAL,
             amount: withdrawalCharge,
             status: 'COMPLETED',
             description: 'withdrawal charge',
@@ -285,6 +356,57 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
             reference: `CHG-${operationReference}`,
             description: 'withdrawal charge',
             transactionId: chargeTransaction.id,
+            metadata: isSharesWithdrawal ? { shareWithdrawal: true } : undefined,
+            createdBy: userId
+          }
+        });
+
+        // Book the fee as bank income in the same DB transaction, so income can never
+        // disagree with the fees actually taken from customer balances.
+        await tx.bankIncome.create({
+          data: {
+            type: 'WITHDRAWAL_CHARGE',
+            amount: withdrawalCharge,
+            description: `Withdrawal charge for transaction ${mainTransaction.id}`,
+            sourceId: mainTransaction.id,
+            sourceType: 'transaction',
+            accountId: withdrawalAuth.accountId,
+            customerId: withdrawalAuth.account.customerId
+          }
+        });
+      }
+
+      // For transfers, credit the destination account so the money actually arrives
+      if (isTransfer && withdrawalAuth.toAccountId) {
+        await tx.account.update({
+          where: { id: withdrawalAuth.toAccountId },
+          data: {
+            balance: { increment: Number(withdrawalAuth.amount) },
+            lastTransactionDate: new Date()
+          }
+        });
+
+        const creditReference = `${operationReference}-CR`;
+        const creditTransaction = await tx.transaction.create({
+          data: {
+            type: TransactionType.DEPOSIT,
+            amount: withdrawalAuth.amount,
+            status: 'COMPLETED',
+            description: `Transfer from account ${withdrawalAuth.account.accountNumber}`,
+            accountId: withdrawalAuth.toAccountId,
+            reference: creditReference
+          }
+        });
+
+        await tx.ledgerEntry.create({
+          data: {
+            accountId: withdrawalAuth.toAccountId,
+            type: 'CREDIT',
+            amount: withdrawalAuth.amount,
+            currency: 'GHS',
+            reference: creditReference,
+            description: `Transfer from account ${withdrawalAuth.account.accountNumber}`,
+            transactionId: creditTransaction.id,
             createdBy: userId
           }
         });
@@ -296,23 +418,17 @@ export const approveWithdrawalAuthorization = async (req: AuthRequest, res: Resp
       };
     });
 
-    // Record withdrawal charge as bank income (outside transaction to avoid issues)
-    if (withdrawalAuth.type === WithdrawalType.WITHDRAWAL) {
-      try {        await BankIncomeService.recordWithdrawalCharge(
-          approvalResult.mainTransactionId,
-          withdrawalAuth.accountId,
-          withdrawalAuth.account.customerId,
-          5.00
-        );
-      } catch (error) {
-        console.error('Error recording withdrawal charge as income:', error);
-        // Don't fail the approval if income recording fails
-      }
-    }
-
     res.json({ message: 'Withdrawal authorization approved successfully' });
   } catch (error) {
     console.error('Error approving withdrawal authorization:', error);
+    if (error instanceof Error && error.message === 'ALREADY_PROCESSED') {
+      return res.status(409).json({ error: 'This withdrawal authorization has already been processed.' });
+    }
+    if (error instanceof Error && error.message === 'INSUFFICIENT_FUNDS_AT_APPROVAL') {
+      return res.status(409).json({
+        error: 'Insufficient balance at time of approval - the account balance changed since this request was reviewed. Please refresh and try again.'
+      });
+    }
     res.status(500).json({ error: 'Failed to approve withdrawal authorization' });
   }
 };
@@ -372,6 +488,7 @@ export const createWithdrawalAuthorization = async (req: AuthRequest, res: Respo
       type,
       description,
       reference,
+      toAccountId,
       toAccountNumber,
       toCustomerName
     } = req.body;
@@ -387,6 +504,16 @@ export const createWithdrawalAuthorization = async (req: AuthRequest, res: Respo
       return res.status(400).json({ error: 'Account ID, amount, and type are required' });
     }
 
+    // A negative amount would CREDIT the account on approval (decrementing by a negative).
+    const requestAmount = Number(amount);
+    if (!isValidAmount(requestAmount)) {
+      return res.status(400).json({ error: 'Amount must be a positive value with at most 2 decimal places' });
+    }
+
+    if (isReservedReference(reference)) {
+      return res.status(400).json({ error: 'This reference prefix is reserved for system transactions' });
+    }
+
     // Validate account exists
     const account = await prisma.account.findUnique({
       where: { id: accountId }
@@ -394,15 +521,51 @@ export const createWithdrawalAuthorization = async (req: AuthRequest, res: Respo
 
     if (!account) {
       return res.status(404).json({ error: 'Account not found' });
-    }    // Create withdrawal authorization
+    }
+
+    if (account.status.toUpperCase() !== 'ACTIVE') {
+      return res.status(400).json({ error: 'Account is not active' });
+    }
+
+    if (account.type === 'LOAN' || account.type === 'TREASURY') {
+      return res.status(400).json({ error: `Withdrawals cannot be made from a ${account.type.toLowerCase()} account` });
+    }
+
+    // Create withdrawal authorization
+    const withdrawalType = type === 'withdrawal'
+      ? WithdrawalType.WITHDRAWAL
+      : type === 'withdrawal-shares'
+        ? WithdrawalType.WITHDRAWAL_SHARES
+        : WithdrawalType.TRANSFER;
+
+    // Transfers must resolve to a real destination account so approval can credit it
+    let resolvedToAccountId: string | undefined;
+    if (withdrawalType === WithdrawalType.TRANSFER) {
+      if (!toAccountId) {
+        return res.status(400).json({ error: 'Destination account is required for transfers' });
+      }
+      if (toAccountId === accountId) {
+        return res.status(400).json({ error: 'Cannot transfer to the same account' });
+      }
+      const toAccount = await prisma.account.findUnique({ where: { id: toAccountId } });
+      if (!toAccount) {
+        return res.status(404).json({ error: 'Destination account not found' });
+      }
+      if (toAccount.status.toUpperCase() !== 'ACTIVE') {
+        return res.status(400).json({ error: 'Destination account is not active' });
+      }
+      resolvedToAccountId = toAccountId;
+    }
+
     const withdrawalAuth = await prisma.withdrawalAuthorization.create({
       data: {
         accountId,
-        amount: Number(amount),
-        type: type === 'withdrawal' ? WithdrawalType.WITHDRAWAL : WithdrawalType.TRANSFER,
+        amount: requestAmount,
+        type: withdrawalType,
         status: WithdrawalAuthorizationStatus.PENDING,
         description,
         reference,
+        toAccountId: resolvedToAccountId,
         toAccountNumber,
         toCustomerName,
         requestedById: userId
@@ -430,7 +593,7 @@ export const createWithdrawalAuthorization = async (req: AuthRequest, res: Respo
       customerName: withdrawalAuth.account.customer.name,
       customerId: withdrawalAuth.account.customer.id,
       amount: Number(withdrawalAuth.amount),
-      type: withdrawalAuth.type.toLowerCase(),
+      type: formatWithdrawalType(withdrawalAuth.type),
       description: withdrawalAuth.description || '',
       reference: withdrawalAuth.reference || '',
       toAccountNumber: withdrawalAuth.toAccountNumber || '',
@@ -438,7 +601,9 @@ export const createWithdrawalAuthorization = async (req: AuthRequest, res: Respo
       requestedAt: withdrawalAuth.requestedAt.toISOString(),
       requestedBy: withdrawalAuth.requestedBy.name,
       status: withdrawalAuth.status.toLowerCase(),
-      availableBalance: Number(withdrawalAuth.account.balance)
+      availableBalance: withdrawalAuth.type === WithdrawalType.WITHDRAWAL_SHARES
+        ? Number(withdrawalAuth.account.shareBalance || 0)
+        : Number(withdrawalAuth.account.balance)
     };
 
     res.status(201).json(response);
@@ -487,11 +652,15 @@ export const reverseWithdrawalAuthorization = async (req: AuthRequest, res: Resp
       return res.status(400).json({ error: 'Withdrawal has already been reversed' });
     }
 
+    const isSharesWithdrawal = withdrawalAuth.type === WithdrawalType.WITHDRAWAL_SHARES;
+    const reversalDepositType = isSharesWithdrawal ? TransactionType.DEPOSIT_SHARES : TransactionType.DEPOSIT;
+
     // Start transaction to reverse the withdrawal
     await prisma.$transaction(async (tx) => {
-      // Mark withdrawal as reversed
-      await tx.withdrawalAuthorization.update({
-        where: { id },
+      // Atomically claim this reversal: if two reverse calls race, only one updateMany
+      // will match isReversed=false and the loser aborts before double-crediting funds.
+      const claimResult = await tx.withdrawalAuthorization.updateMany({
+        where: { id, status: 'APPROVED', isReversed: false },
         data: {
           isReversed: true,
           reversedById: userId,
@@ -500,25 +669,40 @@ export const reverseWithdrawalAuthorization = async (req: AuthRequest, res: Resp
         }
       });
 
-      const chargeAmount = withdrawalAuth.type === WithdrawalType.WITHDRAWAL ? 5.00 : 0;
+      if (claimResult.count === 0) {
+        throw new Error('ALREADY_REVERSED');
+      }
+
+      // Refund whatever fee was actually charged at approval time, not today's configured
+      // rate - the two can differ if an admin changes the withdrawal fee in between.
+      let chargeAmount = 0;
+      if (withdrawalAuth.type === WithdrawalType.WITHDRAWAL || isSharesWithdrawal) {
+        const operationReference = withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`;
+        const originalChargeTransaction = await tx.transaction.findFirst({
+          where: { accountId: withdrawalAuth.accountId, reference: `CHG-${operationReference}` }
+        });
+        chargeAmount = originalChargeTransaction ? Number(originalChargeTransaction.amount) : 0;
+      }
       const totalCredit = Number(withdrawalAuth.amount) + chargeAmount;
 
       // Add the withdrawn amount (and fee where applicable) back to the account
       await tx.account.update({
         where: { id: withdrawalAuth.accountId },
         data: {
-          balance: {
-            increment: totalCredit
-          },
+          ...(isSharesWithdrawal
+            ? { shareBalance: { increment: totalCredit } }
+            : { balance: { increment: totalCredit } }),
           lastTransactionDate: new Date()
         }
       });
 
-      // Create reversal transaction record
-      const mainReversalReference = `REV-${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}`;
+      // Create reversal transaction record. Transfer reversals are tagged REV-TRF- because no
+      // cash moves; a plain REV- reversal of a withdrawal is reported as cash returned to the drawer.
+      const reversalPrefix = withdrawalAuth.type === WithdrawalType.TRANSFER ? 'REV-TRF-' : 'REV-';
+      const mainReversalReference = `${reversalPrefix}${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}`;
       const reversalMainTransaction = await tx.transaction.create({
         data: {
-          type: TransactionType.DEPOSIT,
+          type: reversalDepositType,
           amount: withdrawalAuth.amount,
           status: 'COMPLETED',
           description: `Reversal: ${withdrawalAuth.description || withdrawalAuth.type} (${reason || 'No reason provided'})`,
@@ -536,20 +720,19 @@ export const reverseWithdrawalAuthorization = async (req: AuthRequest, res: Resp
           reference: mainReversalReference,
           description: `Reversal: ${withdrawalAuth.description || withdrawalAuth.type}`,
           transactionId: reversalMainTransaction.id,
+          metadata: isSharesWithdrawal ? { shareDeposit: true } : undefined,
           createdBy: userId
         }
       });
 
-      // For withdrawals, also reverse the withdrawal charge
-      if (withdrawalAuth.type === WithdrawalType.WITHDRAWAL) {
-        const withdrawalCharge = 5.00;
-
+      // For withdrawals (savings or shares), also reverse the withdrawal charge
+      if (chargeAmount > 0) {
         // Create charge reversal transaction record
         const chargeReversalReference = `REV-CHG-${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}`;
         const chargeReversalTransaction = await tx.transaction.create({
           data: {
-            type: TransactionType.DEPOSIT,
-            amount: withdrawalCharge,
+            type: reversalDepositType,
+            amount: chargeAmount,
             status: 'COMPLETED',
             description: 'Reversal: withdrawal charge',
             accountId: withdrawalAuth.accountId,
@@ -561,47 +744,90 @@ export const reverseWithdrawalAuthorization = async (req: AuthRequest, res: Resp
           data: {
             accountId: withdrawalAuth.accountId,
             type: 'CREDIT',
-            amount: withdrawalCharge,
+            amount: chargeAmount,
             currency: 'GHS',
             reference: chargeReversalReference,
             description: 'Reversal: withdrawal charge',
             transactionId: chargeReversalTransaction.id,
+            metadata: isSharesWithdrawal ? { shareDeposit: true } : undefined,
+            createdBy: userId
+          }
+        });
+
+        // Take the refunded fee back out of bank income in the same DB transaction.
+        const originalMainTx = await tx.transaction.findFirst({
+          where: {
+            accountId: withdrawalAuth.accountId,
+            reference: withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`
+          },
+          orderBy: { createdAt: 'asc' }
+        });
+        await tx.bankIncome.create({
+          data: {
+            type: 'WITHDRAWAL_CHARGE',
+            amount: -chargeAmount,
+            description: `Reversal of withdrawal charge for transaction ${originalMainTx?.id || withdrawalAuth.id}`,
+            sourceId: originalMainTx?.id || withdrawalAuth.id,
+            sourceType: 'reversal'
+          }
+        });
+      }
+
+      // For transfers, pull the amount back out of the destination account - only if it still
+      // holds the funds, otherwise the reversal would silently push that account negative.
+      if (withdrawalAuth.type === WithdrawalType.TRANSFER && withdrawalAuth.toAccountId) {
+        const pullBack = await tx.account.updateMany({
+          where: { id: withdrawalAuth.toAccountId, balance: { gte: Number(withdrawalAuth.amount) } },
+          data: {
+            balance: { decrement: Number(withdrawalAuth.amount) },
+            lastTransactionDate: new Date()
+          }
+        });
+
+        if (pullBack.count === 0) {
+          throw new Error('DESTINATION_INSUFFICIENT_FUNDS');
+        }
+
+        const debitReversalReference = `REV-${withdrawalAuth.reference || withdrawalAuth.id}-${Date.now()}-CR`;
+        const debitReversalTransaction = await tx.transaction.create({
+          data: {
+            type: TransactionType.WITHDRAWAL,
+            amount: withdrawalAuth.amount,
+            status: 'COMPLETED',
+            description: `Reversal: transfer from account ${withdrawalAuth.account.accountNumber} (${reason || 'No reason provided'})`,
+            accountId: withdrawalAuth.toAccountId,
+            reference: debitReversalReference
+          }
+        });
+
+        await tx.ledgerEntry.create({
+          data: {
+            accountId: withdrawalAuth.toAccountId,
+            type: 'DEBIT',
+            amount: withdrawalAuth.amount,
+            currency: 'GHS',
+            reference: debitReversalReference,
+            description: `Reversal: transfer received from account ${withdrawalAuth.account.accountNumber}`,
+            transactionId: debitReversalTransaction.id,
             createdBy: userId
           }
         });
       }
+
+      return { chargeAmount };
     });
-
-    // Reverse withdrawal charge from bank income (outside transaction to avoid issues)
-    if (withdrawalAuth.type === WithdrawalType.WITHDRAWAL) {
-      try {
-        const originalMainTx = await prisma.transaction.findFirst({
-          where: {
-            accountId: withdrawalAuth.accountId,
-            type: TransactionType.WITHDRAWAL,
-            reference: withdrawalAuth.reference || `WTH-${withdrawalAuth.id}`,
-            status: 'COMPLETED'
-          },
-          orderBy: {
-            createdAt: 'asc'
-          }
-        });
-
-        if (originalMainTx) {
-          await BankIncomeService.reverseWithdrawalCharge(
-            originalMainTx.id,
-            5.00
-          );
-        }
-      } catch (error) {
-        console.error('Error reversing withdrawal charge from income:', error);
-        // Don't fail the reversal if income reversal fails
-      }
-    }
 
     res.json({ message: 'Withdrawal authorization reversed successfully' });
   } catch (error) {
     console.error('Error reversing withdrawal authorization:', error);
+    if (error instanceof Error && error.message === 'ALREADY_REVERSED') {
+      return res.status(409).json({ error: 'This withdrawal authorization has already been reversed.' });
+    }
+    if (error instanceof Error && error.message === 'DESTINATION_INSUFFICIENT_FUNDS') {
+      return res.status(409).json({
+        error: 'Cannot reverse this transfer: the destination account no longer holds the transferred funds.'
+      });
+    }
     res.status(500).json({ error: 'Failed to reverse withdrawal authorization' });
   }
 };
